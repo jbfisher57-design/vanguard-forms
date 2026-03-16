@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IT Provisioning Request — Vanguard Mechanical Inc.</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+
+  :root {
+    --navy: #0D2137;
+    --navy-mid: #1a3a5c;
+    --blue: #1565C0;
+    --accent: #F4A93C;
+    --accent-light: #FEF3E2;
+    --grey-100: #F7F8FA;
+    --grey-200: #EAECF0;
+    --grey-300: #D0D5DD;
+    --grey-500: #667085;
+    --grey-700: #344054;
+    --grey-900: #101828;
+    --white: #FFFFFF;
+    --green: #027A48;
+    --green-bg: #ECFDF3;
+    --red: #B42318;
+    --red-bg: #FEF3F2;
+    --info-bg: #EFF8FF;
+    --info-border: #B2DDFF;
+    --info-text: #175CD3;
+    --radius: 8px;
+    --radius-lg: 12px;
+    --shadow-sm: 0 1px 2px rgba(16,24,40,.05);
+    --shadow-md: 0 4px 8px -2px rgba(16,24,40,.08), 0 2px 4px -2px rgba(16,24,40,.04);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    background: #F0F2F5;
+    color: var(--grey-900);
+    min-height: 100vh;
+    padding: 0;
+  }
+
+  /* ── Header ── */
+  .page-header {
+    background: var(--navy);
+    padding: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .page-header::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--accent);
+  }
+  .header-inner {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 28px 24px 26px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .header-logo {
+    width: 48px; height: 48px;
+    background: var(--accent);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    font-size: 15px;
+    color: var(--navy);
+    flex-shrink: 0;
+    letter-spacing: -.5px;
+  }
+  .header-text h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+    line-height: 1.3;
+  }
+  .header-text p {
+    font-size: 13px;
+    color: rgba(255,255,255,.55);
+    margin-top: 2px;
+  }
+  .header-badge {
+    margin-left: auto;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255,255,255,.6);
+    white-space: nowrap;
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* ── Layout ── */
+  .form-body {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 28px 24px 60px;
+  }
+
+  .notice {
+    background: var(--info-bg);
+    border: 1px solid var(--info-border);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    font-size: 13px;
+    color: var(--info-text);
+    margin-bottom: 24px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .notice::before {
+    content: 'ℹ';
+    font-size: 14px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  /* ── Card / Section ── */
+  .card {
+    background: var(--white);
+    border: 1px solid var(--grey-200);
+    border-radius: var(--radius-lg);
+    margin-bottom: 16px;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+  .card-header {
+    padding: 14px 20px 13px;
+    border-bottom: 1px solid var(--grey-200);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--grey-100);
+  }
+  .section-num {
+    width: 22px; height: 22px;
+    background: var(--navy);
+    color: #fff;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+    font-family: 'DM Mono', monospace;
+  }
+  .card-header h2 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--grey-700);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    flex: 1;
+  }
+  .badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .badge-office { background: #EFF8FF; color: #175CD3; }
+  .badge-field  { background: var(--green-bg); color: var(--green); }
+  .badge-opt    { background: var(--grey-200); color: var(--grey-500); }
+
+  .card-body { padding: 20px; }
+
+  /* ── Fields ── */
+  .field-grid { display: grid; gap: 16px; }
+  .field-grid.col2 { grid-template-columns: 1fr 1fr; }
+  .field-grid.col3 { grid-template-columns: 1fr 1fr 1fr; }
+
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--grey-700);
+  }
+  .field label .req { color: #E04040; margin-left: 2px; }
+  .field input,
+  .field select,
+  .field textarea {
+    border: 1px solid var(--grey-300);
+    border-radius: var(--radius);
+    padding: 9px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--grey-900);
+    background: var(--white);
+    transition: border-color .15s, box-shadow .15s;
+    width: 100%;
+  }
+  .field input:focus,
+  .field select:focus,
+  .field textarea:focus {
+    outline: none;
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(21,101,192,.12);
+  }
+  .field input:disabled {
+    background: var(--grey-100);
+    color: var(--grey-500);
+    cursor: not-allowed;
+  }
+  .field textarea { resize: vertical; min-height: 72px; }
+  .field .hint {
+    font-size: 11px;
+    color: var(--grey-500);
+    line-height: 1.5;
+  }
+  .email-preview {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    background: var(--grey-100);
+    border: 1px dashed var(--grey-300);
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    color: var(--grey-500);
+  }
+  .email-preview span { color: var(--navy); font-weight: 500; }
+
+  /* ── Radio / Checkbox ── */
+  .choice-group { display: flex; flex-direction: column; gap: 8px; }
+  .choice-group.inline { flex-direction: row; gap: 16px; flex-wrap: wrap; }
+  .choice-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 1px solid var(--grey-200);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    position: relative;
+  }
+  .choice-item:hover { border-color: var(--grey-300); background: var(--grey-100); }
+  .choice-item input[type=radio],
+  .choice-item input[type=checkbox] {
+    width: 16px; height: 16px;
+    margin-top: 1px;
+    flex-shrink: 0;
+    accent-color: var(--navy);
+    cursor: pointer;
+  }
+  .choice-item input[type=radio]:checked ~ .choice-text,
+  .choice-item input[type=checkbox]:checked ~ .choice-text { color: var(--navy); }
+  .choice-item:has(input:checked) {
+    border-color: var(--navy);
+    background: #F0F4FA;
+  }
+  .choice-text { display: flex; flex-direction: column; gap: 2px; }
+  .choice-text strong { font-size: 13px; font-weight: 500; color: var(--grey-900); }
+  .choice-text span  { font-size: 12px; color: var(--grey-500); line-height: 1.5; }
+
+  /* ── Divider ── */
+  .divider {
+    height: 1px;
+    background: var(--grey-200);
+    margin: 16px 0;
+  }
+  .subsection-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--grey-500);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    margin-bottom: 10px;
+  }
+
+  /* ── Conditional panels ── */
+  .conditional {
+    display: none;
+    margin-top: 14px;
+    padding: 14px 16px;
+    background: var(--grey-100);
+    border-radius: var(--radius);
+    border: 1px solid var(--grey-200);
+  }
+  .conditional.visible { display: block; }
+
+  /* ── IT checklist ── */
+  .it-card {
+    background: var(--grey-100);
+    border: 1px solid var(--grey-200);
+    border-radius: var(--radius-lg);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .it-card-header {
+    padding: 12px 20px;
+    background: var(--grey-700);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .it-card-header h2 {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255,255,255,.7);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+  }
+  .it-card-header::before {
+    content: '🔒';
+    font-size: 12px;
+  }
+  .it-card-body { padding: 16px 20px; }
+  .checklist-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .check-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--white);
+    border: 1px solid var(--grey-200);
+    border-radius: var(--radius);
+    font-size: 13px;
+    color: var(--grey-700);
+    cursor: pointer;
+    transition: border-color .15s;
+  }
+  .check-item:hover { border-color: var(--grey-400); }
+  .check-item:has(input:checked) {
+    border-color: var(--green);
+    background: var(--green-bg);
+    color: var(--green);
+  }
+  .check-item input { accent-color: var(--green); flex-shrink: 0; }
+
+  /* ── Submit ── */
+  .submit-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-top: 8px;
+  }
+  .btn-submit {
+    flex: 1;
+    background: var(--navy);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    padding: 13px 24px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background .15s, transform .1s;
+    letter-spacing: .01em;
+  }
+  .btn-submit:hover { background: var(--navy-mid); }
+  .btn-submit:active { transform: scale(.99); }
+  .btn-reset {
+    background: transparent;
+    color: var(--grey-500);
+    border: 1px solid var(--grey-300);
+    border-radius: var(--radius);
+    padding: 13px 20px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color .15s, color .15s;
+  }
+  .btn-reset:hover { border-color: var(--grey-500); color: var(--grey-700); }
+
+  /* ── Success state ── */
+  .success-screen {
+    display: none;
+    text-align: center;
+    padding: 60px 24px;
+    background: var(--white);
+    border: 1px solid var(--grey-200);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+  }
+  .success-screen.visible { display: block; }
+  .success-icon {
+    width: 60px; height: 60px;
+    background: var(--green-bg);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 20px;
+    font-size: 26px;
+  }
+  .success-screen h2 { font-size: 22px; font-weight: 600; color: var(--grey-900); margin-bottom: 8px; }
+  .success-screen p  { font-size: 14px; color: var(--grey-500); max-width: 420px; margin: 0 auto 24px; line-height: 1.6; }
+  .btn-new {
+    background: var(--navy);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    padding: 11px 24px;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  /* ── Error ── */
+  .field-error {
+    font-size: 11px;
+    color: var(--red);
+    display: none;
+  }
+  .field.invalid input,
+  .field.invalid select {
+    border-color: var(--red);
+  }
+  .field.invalid .field-error { display: block; }
+
+  /* ── Submission status ── */
+  #submit-status {
+    font-size: 13px;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    display: none;
+    margin-top: 12px;
+  }
+  #submit-status.error { background: var(--red-bg); color: var(--red); display: block; }
+  #submit-status.loading { background: var(--info-bg); color: var(--info-text); display: block; }
+
+  @media (max-width: 600px) {
+    .field-grid.col2, .field-grid.col3 { grid-template-columns: 1fr; }
+    .checklist-grid { grid-template-columns: 1fr; }
+    .header-badge { display: none; }
+    .choice-group.inline { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="header-inner">
+    <div class="header-logo">VMI</div>
+    <div class="header-text">
+      <h1>IT Provisioning Request</h1>
+      <p>Vanguard Mechanical Inc. — Submit at least 2 business days before start date</p>
+    </div>
+    <div class="header-badge">Internal Use Only</div>
+  </div>
+</div>
+
+<div class="form-body">
+  <div class="notice">
+    Once submitted, IT will receive an automatic notification and begin provisioning. You will receive a confirmation copy by email.
+  </div>
+
+  <form id="provision-form" novalidate>
+
+    <!-- ── Section 1: Request Info ── -->
+    <div class="card">
+      <div class="card-header"><div class="section-num">1</div><h2>Request Information</h2></div>
+      <div class="card-body">
+        <div class="field-grid col2">
+          <div class="field" id="f-requestor">
+            <label>Requested by (manager / HR) <span class="req">*</span></label>
+            <input type="text" id="requestor" placeholder="Full name" required>
+            <span class="field-error">Please enter your name</span>
+          </div>
+          <div class="field" id="f-req-email">
+            <label>Your email address <span class="req">*</span></label>
+            <input type="email" id="req-email" placeholder="you@vanguardmechanical.com" required>
+            <span class="field-error">Please enter a valid email</span>
+          </div>
+        </div>
+        <div class="field-grid col2" style="margin-top:16px">
+          <div class="field" id="f-req-date">
+            <label>Date of request <span class="req">*</span></label>
+            <input type="date" id="req-date" required>
+            <span class="field-error">Please select a date</span>
+          </div>
+          <div class="field">
+            <label>Request type</label>
+            <select id="req-type">
+              <option value="New Hire">New hire</option>
+              <option value="Rehire">Rehire</option>
+              <option value="Role Change">Role change</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section 2: Employee Info ── -->
+    <div class="card">
+      <div class="card-header"><div class="section-num">2</div><h2>Employee Information</h2></div>
+      <div class="card-body">
+        <div class="field-grid col2">
+          <div class="field" id="f-first">
+            <label>First name (legal) <span class="req">*</span></label>
+            <input type="text" id="emp-first" placeholder="e.g. Jonathan" required>
+            <span class="field-error">Required</span>
+          </div>
+          <div class="field" id="f-last">
+            <label>Last name (legal) <span class="req">*</span></label>
+            <input type="text" id="emp-last" placeholder="e.g. Fisher" required>
+            <span class="field-error">Required</span>
+          </div>
+        </div>
+        <div class="field-grid col2" style="margin-top:16px">
+          <div class="field" id="f-title">
+            <label>Job title <span class="req">*</span></label>
+            <input type="text" id="emp-title" placeholder="e.g. Field Technician" required>
+            <span class="field-error">Required</span>
+          </div>
+          <div class="field" id="f-start">
+            <label>Start date <span class="req">*</span></label>
+            <input type="date" id="emp-start" required>
+            <span class="field-error">Required</span>
+          </div>
+        </div>
+        <div style="margin-top:16px">
+          <div class="subsection-label">Email address — generated by IT</div>
+          <div class="email-preview" id="email-preview">firstinitiallastname<span>@vanguardmechanical.com</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section 3: Worker Type ── -->
+    <div class="card">
+      <div class="card-header"><div class="section-num">3</div><h2>Worker Type &amp; License</h2></div>
+      <div class="card-body">
+        <div class="subsection-label">Worker type <span style="color:#E04040">*</span></div>
+        <div class="choice-group" id="worker-type-group">
+          <label class="choice-item">
+            <input type="radio" name="worker_type" value="Office Worker" required>
+            <div class="choice-text">
+              <strong>Office Worker — Microsoft 365 Business Premium</strong>
+              <span>Full M365 suite, Intune included, Teams Voice eligible</span>
+            </div>
+          </label>
+          <label class="choice-item">
+            <input type="radio" name="worker_type" value="Field Worker">
+            <div class="choice-text">
+              <strong>Field Worker — Microsoft 365 Business Basic</strong>
+              <span>Email + Teams chat. Intune add-on required only if company device assigned.</span>
+            </div>
+          </label>
+        </div>
+        <div class="divider"></div>
+        <div class="subsection-label">Microsoft 365 Copilot license required?</div>
+        <div class="choice-group inline">
+          <label class="choice-item">
+            <input type="radio" name="copilot" value="Yes">
+            <div class="choice-text"><strong>Yes</strong><span>MCA billing account</span></div>
+          </label>
+          <label class="choice-item">
+            <input type="radio" name="copilot" value="No" checked>
+            <div class="choice-text"><strong>No</strong></div>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section 4: Teams Voice ── -->
+    <div class="card">
+      <div class="card-header"><div class="section-num">4</div><h2>Teams Voice Phone</h2><span class="badge badge-office">Office workers only</span></div>
+      <div class="card-body">
+        <div class="choice-group inline">
+          <label class="choice-item">
+            <input type="radio" name="voice" value="Yes" onchange="toggle('voice-note', true)">
+            <div class="choice-text"><strong>Yes — assign a DID</strong><span>Canadian phone number via Business Voice</span></div>
+          </label>
+          <label class="choice-item">
+            <input type="radio" name="voice" value="No" checked onchange="toggle('voice-note', false)">
+            <div class="choice-text"><strong>No</strong></div>
+          </label>
+        </div>
+        <div class="conditional" id="voice-note">
+          <span class="hint">IT will assign a number, add the Business Voice Adoption Promo license, and add the employee to the Phone Members group.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section 5: Amazon Business ── -->
+    <div class="card">
+      <div class="card-header"><div class="section-num">5</div><h2>Amazon Business Canada</h2><span class="badge badge-opt">If required</span></div>
+      <div class="card-body">
+        <div class="choice-group inline">
+          <label class="choice-item">
+            <input type="radio" name="amazon" value="Yes" onchange="toggle('amazon-note', true)">
+            <div class="choice-text"><strong>Yes — purchasing access</strong><span>Provisioned as Requisitioner via SCIM</span></div>
+          </label>
+          <label class="choice-item">
+            <input type="radio" name="amazon" value="No" checked onchange="toggle('amazon-note', false)">
+            <div class="choice-text"><strong>No</strong></div>
+          </label>
+        </div>
+        <div class="conditional" id="amazon-note">
+          <span class="hint">IT adds to Amazon Buyers group. SCIM auto-provisions within ~40 minutes. Sign-in via Microsoft SSO — no separate Amazon password.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section 6: Door Access ── -->
+    <div class="card">
+      <div class="card-header"><div class="section-num">6</div><h2>Building / Door Access</h2><span class="badge badge-opt">If required</span></div>
+      <div class="card-body">
+        <div class="choice-group inline">
+          <label class="choice-item">
+            <input type="radio" name="door" value="Yes" onchange="toggle('door-panel', true)">
+            <div class="choice-text"><strong>Yes — front door access</strong><span>Mon–Fri 5:00 AM – 8:00 PM (default)</span></div>
+          </label>
+          <label class="choice-item">
+            <input type="radio" name="door" value="No" checked onchange="toggle('door-panel', false)">
+            <div class="choice-text"><strong>No</strong></div>
+          </label>
+        </div>
+        <div class="conditional" id="door-panel">
+          <span class="hint" style="display:block;margin-bottom:10px">IT adds to Ubiquiti Unify Identity Users group. Front door access is automatic within ~10 minutes on the default Mon–Fri 5 AM–8 PM schedule.</span>
+          <div class="subsection-label" style="margin-bottom:8px">Weekend / extended hours required?</div>
+          <div class="choice-group inline">
+            <label class="choice-item">
+              <input type="radio" name="door_extended" value="Yes">
+              <div class="choice-text"><strong>Yes</strong><span>Admin will adjust in Ubiquiti Access</span></div>
+            </label>
+            <label class="choice-item">
+              <input type="radio" name="door_extended" value="No" checked>
+              <div class="choice-text"><strong>No — default schedule is fine</strong></div>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section 7: Corfix ── -->
+    <div class="card">
+      <div class="card-header"><div class="section-num">7</div><h2>Corfix Account</h2><span class="badge badge-field">Field workers only</span></div>
+      <div class="card-body">
+        <div class="choice-group inline">
+          <label class="choice-item">
+            <input type="radio" name="corfix" value="Yes" onchange="toggle('corfix-note', true)">
+            <div class="choice-text"><strong>Yes — Corfix account required</strong></div>
+          </label>
+          <label class="choice-item">
+            <input type="radio" name="corfix" value="No" checked onchange="toggle('corfix-note', false)">
+            <div class="choice-text"><strong>No</strong></div>
+          </label>
+        </div>
+        <div class="conditional" id="corfix-note">
+          <span class="hint">Amin Attar will direct the Health &amp; Safety Coordinator to set up the account manually. Login details will be sent to the employee by Vanguard management. No SCIM integration — manual provisioning only.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section 8: QuickBooks Time ── -->
+    <div class="card">
+      <div class="card-header"><div class="section-num">8</div><h2>QuickBooks Time Kiosk</h2><span class="badge badge-opt">Company devices</span></div>
+      <div class="card-body">
+        <div class="choice-group inline">
+          <label class="choice-item">
+            <input type="radio" name="qb_kiosk" value="Yes" onchange="toggle('qb-kiosk-note', true)">
+            <div class="choice-text"><strong>Yes — kiosk required on device</strong></div>
+          </label>
+          <label class="choice-item">
+            <input type="radio" name="qb_kiosk" value="No" checked onchange="toggle('qb-kiosk-note', false)">
+            <div class="choice-text"><strong>No</strong></div>
+          </label>
+        </div>
+        <div class="conditional" id="qb-kiosk-note">
+          <span class="hint">Kiosk app deploys automatically via Intune once the device is enrolled. IT will confirm enrollment to Amin Attar, who will coordinate with Carl Choy (PTL Business Services) to activate location services. Kiosk login code will be sent to the employee by Vanguard management.</span>
+        </div>
+        <div class="divider"></div>
+        <div class="subsection-label">QuickBooks personal login required?</div>
+        <div class="choice-group inline">
+          <label class="choice-item">
+            <input type="radio" name="qb_login" value="Yes" onchange="toggle('qb-login-panel', true)">
+            <div class="choice-text"><strong>Yes — QuickBooks login needed</strong></div>
+          </label>
+          <label class="choice-item">
+            <input type="radio" name="qb_login" value="No" checked onchange="toggle('qb-login-panel', false)">
+            <div class="choice-text"><strong>No</strong></div>
+          </label>
+        </div>
+        <div class="conditional" id="qb-login-panel">
+          <div class="field" style="margin-bottom:8px">
+            <label>Required access level</label>
+            <select id="qb-access">
+              <option value="">Select access level...</option>
+              <option>View only (reports)</option>
+              <option>Time entry only</option>
+              <option>Standard user</option>
+              <option>Accountant / full access</option>
+              <option>Not sure — defer to Amin Attar</option>
+            </select>
+          </div>
+          <span class="hint">Amin Attar will coordinate with Carl Choy (PTL Business Services) to set up the account. Login details sent to employee by Vanguard management.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section 9: Device ── -->
+    <div class="card">
+      <div class="card-header"><div class="section-num">9</div><h2>Company Device</h2><span class="badge badge-opt">If applicable</span></div>
+      <div class="card-body">
+        <div class="choice-group inline">
+          <label class="choice-item">
+            <input type="radio" name="device" value="Yes" onchange="toggle('device-panel', true)">
+            <div class="choice-text"><strong>Yes — company device assigned</strong></div>
+          </label>
+          <label class="choice-item">
+            <input type="radio" name="device" value="No" checked onchange="toggle('device-panel', false)">
+            <div class="choice-text"><strong>No — personal / BYOD</strong></div>
+          </label>
+        </div>
+        <div class="conditional" id="device-panel">
+          <div class="subsection-label" style="margin-bottom:8px">Device type</div>
+          <div class="choice-group inline" style="margin-bottom:12px">
+            <label class="choice-item"><input type="checkbox" name="device_type" value="iPhone"><div class="choice-text"><strong>iPhone</strong></div></label>
+            <label class="choice-item"><input type="checkbox" name="device_type" value="iPad"><div class="choice-text"><strong>iPad</strong></div></label>
+            <label class="choice-item"><input type="checkbox" name="device_type" value="Other"><div class="choice-text"><strong>Other</strong></div></label>
+          </div>
+          <div class="field" style="margin-bottom:12px">
+            <label>Device notes / serial number (if known)</label>
+            <input type="text" id="device-notes" placeholder="e.g. iPhone 16 Pro — enrolled via Apple Configurator + VanguardMDM">
+          </div>
+          <div class="divider"></div>
+          <div class="subsection-label" style="margin-bottom:8px">Intune Plan 1 add-on required?</div>
+          <div class="choice-group inline">
+            <label class="choice-item">
+              <input type="radio" name="intune_addon" value="Yes">
+              <div class="choice-text"><strong>Yes — purchase add-on</strong><span>Business Basic users with company device only</span></div>
+            </label>
+            <label class="choice-item">
+              <input type="radio" name="intune_addon" value="No" checked>
+              <div class="choice-text"><strong>No</strong><span>Business Premium already includes Intune</span></div>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section 10: Notes ── -->
+    <div class="card">
+      <div class="card-header"><div class="section-num">10</div><h2>Additional Notes</h2><span class="badge badge-opt">Optional</span></div>
+      <div class="card-body">
+        <div class="field">
+          <label>Any additional access, software, or special requirements</label>
+          <textarea id="notes" placeholder="e.g. Specific Teams channels, shared mailbox access, temporary access changes..."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Section 11: Sign-off ── -->
+    <div class="card">
+      <div class="card-header"><div class="section-num">11</div><h2>Manager Sign-off</h2></div>
+      <div class="card-body">
+        <div class="field-grid col2">
+          <div class="field" id="f-sig">
+            <label>Type full name as signature <span class="req">*</span></label>
+            <input type="text" id="signature" placeholder="Full name confirms approval" required>
+            <span class="field-error">Signature required</span>
+          </div>
+          <div class="field" id="f-sig-date">
+            <label>Date <span class="req">*</span></label>
+            <input type="date" id="sig-date" required>
+            <span class="field-error">Required</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── IT Use Only ── -->
+    <div class="it-card">
+      <div class="it-card-header"><h2>For IT use only — do not complete</h2></div>
+      <div class="it-card-body">
+        <div class="checklist-grid">
+          <label class="check-item"><input type="checkbox"> M365 account created</label>
+          <label class="check-item"><input type="checkbox"> License(s) assigned</label>
+          <label class="check-item"><input type="checkbox"> Passkey / MFA enforced</label>
+          <label class="check-item"><input type="checkbox"> Teams Voice number assigned</label>
+          <label class="check-item"><input type="checkbox"> Phone Members group</label>
+          <label class="check-item"><input type="checkbox"> Amazon Buyers group</label>
+          <label class="check-item"><input type="checkbox"> Ubiquiti group added</label>
+          <label class="check-item"><input type="checkbox"> Weekend access adjusted (if needed)</label>
+          <label class="check-item"><input type="checkbox"> Device enrolled (Intune / ABM)</label>
+          <label class="check-item"><input type="checkbox"> Amin notified (QB kiosk / login)</label>
+          <label class="check-item"><input type="checkbox"> Amin notified (Corfix)</label>
+          <label class="check-item"><input type="checkbox"> Welcome email sent</label>
+        </div>
+        <div class="field-grid col2">
+          <div class="field"><label>Provisioned by (IT admin)</label><input type="text" placeholder="Name"></div>
+          <div class="field"><label>Date completed</label><input type="date"></div>
+        </div>
+        <div class="field" style="margin-top:12px">
+          <label>IT notes</label>
+          <textarea placeholder="Issues, deferred items, special configurations..."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="submit-row">
+      <button type="submit" class="btn-submit">Submit Provisioning Request</button>
+      <button type="button" class="btn-reset" onclick="resetForm()">Clear form</button>
+    </div>
+    <div id="submit-status"></div>
+
+  </form>
+
+  <!-- ── Success Screen ── -->
+  <div class="success-screen" id="success-screen">
+    <div class="success-icon">✓</div>
+    <h2>Request submitted</h2>
+    <p>IT has been notified and will begin provisioning. You'll receive a confirmation copy at your email address.</p>
+    <button class="btn-new" onclick="resetForm()">Submit another request</button>
+  </div>
+
+</div><!-- /form-body -->
+
+<script>
+  // ── Live email preview ──
+  const first = document.getElementById('emp-first');
+  const last  = document.getElementById('emp-last');
+  const preview = document.getElementById('email-preview');
+
+  function updatePreview() {
+    const f = (first.value.trim()[0] || '').toLowerCase();
+    const l = last.value.trim().toLowerCase().replace(/\s+/g,'');
+    if (f || l) {
+      preview.innerHTML = `<span>${f}${l}</span>@vanguardmechanical.com`;
+    } else {
+      preview.innerHTML = 'firstinitiallastname<span>@vanguardmechanical.com</span>';
+    }
+  }
+  first.addEventListener('input', updatePreview);
+  last.addEventListener('input', updatePreview);
+
+  // ── Set today's date defaults ──
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('req-date').value = today;
+  document.getElementById('sig-date').value = today;
+
+  // ── Conditional panels ──
+  function toggle(id, show) {
+    document.getElementById(id).classList.toggle('visible', show);
+  }
+
+  // ── Validation ──
+  function validateForm() {
+    let valid = true;
+    const requiredFields = [
+      { id: 'f-requestor', input: 'requestor' },
+      { id: 'f-req-email', input: 'req-email' },
+      { id: 'f-req-date',  input: 'req-date' },
+      { id: 'f-first',     input: 'emp-first' },
+      { id: 'f-last',      input: 'emp-last' },
+      { id: 'f-title',     input: 'emp-title' },
+      { id: 'f-start',     input: 'emp-start' },
+      { id: 'f-sig',       input: 'signature' },
+      { id: 'f-sig-date',  input: 'sig-date' },
+    ];
+    requiredFields.forEach(({ id, input }) => {
+      const el = document.getElementById(input);
+      const wrap = document.getElementById(id);
+      if (!el.value.trim()) {
+        wrap.classList.add('invalid');
+        valid = false;
+      } else {
+        wrap.classList.remove('invalid');
+      }
+    });
+    // Worker type radio required
+    if (!document.querySelector('input[name="worker_type"]:checked')) {
+      valid = false;
+      document.getElementById('worker-type-group').style.outline = '2px solid #E04040';
+      document.getElementById('worker-type-group').style.borderRadius = '8px';
+    } else {
+      document.getElementById('worker-type-group').style.outline = '';
+    }
+    return valid;
+  }
+
+  // ── Build summary for Power Automate / SharePoint ──
+  function collectFormData() {
+    const get = id => (document.getElementById(id) || {}).value || '';
+    const radio = name => { const el = document.querySelector(`input[name="${name}"]:checked`); return el ? el.value : 'No'; };
+    const checks = name => [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(e => e.value).join(', ') || 'None';
+
+    return {
+      RequestedBy:    get('requestor'),
+      RequestorEmail: get('req-email'),
+      RequestDate:    get('req-date'),
+      RequestType:    get('req-type'),
+      EmployeeFirst:  get('emp-first'),
+      EmployeeLast:   get('emp-last'),
+      JobTitle:       get('emp-title'),
+      StartDate:      get('emp-start'),
+      EmailAddress:   (get('emp-first')[0] || '').toLowerCase() + get('emp-last').toLowerCase().replace(/\s/g,'') + '@vanguardmechanical.com',
+      WorkerType:     radio('worker_type'),
+      Copilot:        radio('copilot'),
+      TeamsVoice:     radio('voice'),
+      AmazonBusiness: radio('amazon'),
+      DoorAccess:     radio('door'),
+      DoorExtended:   radio('door_extended'),
+      Corfix:         radio('corfix'),
+      QBKiosk:        radio('qb_kiosk'),
+      QBLogin:        radio('qb_login'),
+      QBAccessLevel:  get('qb-access'),
+      CompanyDevice:  radio('device'),
+      DeviceType:     checks('device_type'),
+      DeviceNotes:    get('device-notes'),
+      IntuneAddon:    radio('intune_addon'),
+      Notes:          get('notes'),
+      Signature:      get('signature'),
+      SignatureDate:  get('sig-date'),
+    };
+  }
+
+  // ── Submit handler ──
+  // CONFIGURATION: Replace the URL below with your Power Automate HTTP trigger URL
+  // To get this URL: Power Automate → New flow → Instant cloud flow →
+  //   "When an HTTP request is received" trigger → copy the HTTP POST URL after saving
+  const POWER_AUTOMATE_URL = 'YOUR_POWER_AUTOMATE_HTTP_TRIGGER_URL_HERE';
+
+  document.getElementById('provision-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    if (!validateForm()) {
+      document.getElementById('submit-status').className = 'error';
+      document.getElementById('submit-status').textContent = 'Please complete all required fields before submitting.';
+      return;
+    }
+
+    const status = document.getElementById('submit-status');
+    status.className = 'loading';
+    status.textContent = 'Submitting request...';
+
+    const data = collectFormData();
+
+    // If no Power Automate URL is configured yet, show success in preview mode
+    if (POWER_AUTOMATE_URL === 'YOUR_POWER_AUTOMATE_HTTP_TRIGGER_URL_HERE') {
+      setTimeout(() => {
+        status.className = '';
+        document.getElementById('provision-form').style.display = 'none';
+        document.getElementById('success-screen').classList.add('visible');
+      }, 800);
+      return;
+    }
+
+    try {
+      await fetch(POWER_AUTOMATE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        mode: 'no-cors'
+      });
+      status.className = '';
+      document.getElementById('provision-form').style.display = 'none';
+      document.getElementById('success-screen').classList.add('visible');
+    } catch (err) {
+      status.className = 'error';
+      status.textContent = 'Submission failed. Please email IT directly at it@vanguardmechanical.com';
+    }
+  });
+
+  function resetForm() {
+    document.getElementById('provision-form').reset();
+    document.getElementById('provision-form').style.display = '';
+    document.getElementById('success-screen').classList.remove('visible');
+    document.getElementById('submit-status').className = '';
+    document.getElementById('submit-status').textContent = '';
+    document.querySelectorAll('.conditional').forEach(el => el.classList.remove('visible'));
+    document.querySelectorAll('.field.invalid').forEach(el => el.classList.remove('invalid'));
+    updatePreview();
+    document.getElementById('req-date').value = today;
+    document.getElementById('sig-date').value = today;
+  }
+</script>
+
+</body>
+</html>
