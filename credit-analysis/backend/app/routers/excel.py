@@ -10,12 +10,10 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import current_active_user
 from app.database import get_async_session
 from app.models.filing import Filing
 from app.models.financial_statement import FinancialStatement
 from app.models.forecast_session import ForecastSession
-from app.models.user import User
 from app.services.excel_builder import build_excel
 from app.services.excel_parser import ExcelParseError, extract_overrides, parse_uploaded_excel
 from app.services.forecast_engine import compute_forecasts
@@ -28,14 +26,12 @@ async def download_excel(
     cik: str,
     session_id: UUID,
     db: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user),
 ):
     padded = cik.zfill(10)
     result = await db.execute(
         select(ForecastSession).where(
             ForecastSession.id == session_id,
             ForecastSession.cik == padded,
-            ForecastSession.user_id == user.id,
         )
     )
     fs_session = result.scalar_one_or_none()
@@ -131,7 +127,6 @@ async def upload_excel(
     cik: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user),
 ):
     padded = cik.zfill(10)
     content = await file.read()
@@ -149,7 +144,6 @@ async def upload_excel(
         select(ForecastSession).where(
             ForecastSession.id == session_id,
             ForecastSession.cik == padded,
-            ForecastSession.user_id == user.id,
         )
     )
     fs_session = result.scalar_one_or_none()

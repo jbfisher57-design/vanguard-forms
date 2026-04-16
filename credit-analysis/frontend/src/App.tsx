@@ -1,13 +1,11 @@
-import React, { Suspense, lazy, useState } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CompanySearch } from "./components/CompanySearch/CompanySearch";
 import { FinancialGrid } from "./components/FinancialGrid/FinancialGrid";
 import { ForecastMethodPanel } from "./components/FinancialGrid/ForecastMethodPanel";
 import { DebtSchedule } from "./components/DebtSchedule/DebtSchedule";
 import { ExcelPanel } from "./components/ExcelPanel/ExcelPanel";
-import { GridSkeleton, SpinnerOverlay } from "./components/common/LoadingSkeleton";
-import { LoginPage } from "./components/common/AuthPages";
-import { useAuthStore } from "./store/authStore";
+import { GridSkeleton } from "./components/common/LoadingSkeleton";
 import { useForecastStore } from "./store/forecastStore";
 import { getCompany } from "./api/companies";
 import { getFinancials, type StatementType, type FormType } from "./api/financials";
@@ -17,7 +15,6 @@ import {
   updateForecast,
   type ForecastPeriod,
 } from "./api/forecasts";
-import { logout } from "./api/auth";
 import type { CompanySearchResult } from "./api/companies";
 
 type TabType = "income_statement" | "balance_sheet" | "cash_flow" | "debt";
@@ -30,7 +27,6 @@ const TAB_LABELS: Record<TabType, string> = {
 };
 
 export default function App() {
-  const { isAuthenticated, setToken } = useAuthStore();
   const queryClient = useQueryClient();
 
   const [selectedCompany, setSelectedCompany] = useState<CompanySearchResult | null>(null);
@@ -47,10 +43,6 @@ export default function App() {
     setDirty,
     selectedRowConcept,
   } = useForecastStore();
-
-  if (!isAuthenticated()) {
-    return <LoginPage />;
-  }
 
   const cik = selectedCompany?.cik ?? "";
 
@@ -132,11 +124,6 @@ export default function App() {
     },
   });
 
-  const handleLogout = async () => {
-    await logout();
-    setToken(null);
-  };
-
   const forecastValues = activeSession?.forecast_values;
   const forecastPeriodCols = (activeSession?.forecast_periods ?? []).map((p) => ({
     key: p.label,
@@ -165,12 +152,6 @@ export default function App() {
         <div className="flex-1">
           <CompanySearch onSelect={setSelectedCompany} />
         </div>
-        <button
-          onClick={handleLogout}
-          className="text-blue-200 hover:text-white text-sm transition-colors"
-        >
-          Sign out
-        </button>
       </header>
 
       {!selectedCompany ? (

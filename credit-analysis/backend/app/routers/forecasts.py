@@ -1,5 +1,5 @@
 """
-Forecast session CRUD.
+Forecast session CRUD (no auth required).
 POST /api/companies/{cik}/forecasts
 GET  /api/companies/{cik}/forecasts
 GET  /api/companies/{cik}/forecasts/{session_id}
@@ -14,19 +14,17 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import current_active_user
 from app.database import get_async_session
 from app.models.financial_statement import FinancialStatement
 from app.models.forecast_session import ForecastSession
-from app.models.user import User
 from app.services.forecast_engine import build_default_assumptions, compute_forecasts
 
 router = APIRouter(prefix="/api/companies", tags=["forecasts"])
 
 
 class ForecastPeriod(BaseModel):
-    label: str       # e.g. "2025E"
-    period_end: str  # ISO date
+    label: str
+    period_end: str
 
 
 class AssumptionRow(BaseModel):
@@ -39,8 +37,8 @@ class AssumptionRow(BaseModel):
 class CreateForecastRequest(BaseModel):
     name: str
     statement_type: str = "income_statement"
-    base_filing_id: int          # The filing to base forecasts on
-    base_period_ends: list[str]  # All historical period keys to include
+    base_filing_id: int
+    base_period_ends: list[str]
     forecast_periods: list[ForecastPeriod]
     assumptions: Optional[list[AssumptionRow]] = None
 
@@ -69,11 +67,9 @@ async def create_forecast(
     cik: str,
     body: CreateForecastRequest,
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user),
 ):
     padded = cik.zfill(10)
 
-    # Fetch the reference financial statement
     fs_result = await session.execute(
         select(FinancialStatement).where(
             FinancialStatement.filing_id == body.base_filing_id,
@@ -87,13 +83,12 @@ async def create_forecast(
     line_items = fs.line_items
     num_periods = len(body.forecast_periods)
 
-    # Use provided assumptions or generate defaults
-    if body.assumptions:
-        assumptions = [a.model_dump() for a in body.assumptions]
-    else:
-        assumptions = build_default_assumptions(line_items, num_periods)
+    assumptions = (
+        [a.model_dump() for a in body.assumptions]
+        if body.assumptions
+        else build_default_assumptions(line_items, num_periods)
+    )
 
-    # Compute forecast values
     forecast_values = compute_forecasts(
         line_items=line_items,
         assumptions=assumptions,
@@ -103,7 +98,7 @@ async def create_forecast(
 
     fs_session = ForecastSession(
         cik=padded,
-        user_id=user.id,
+        user_id=None,
         name=body.name,
         base_period_ends=body.base_period_ends,
         forecast_periods=[p.model_dump() for p in body.forecast_periods],
@@ -113,7 +108,6 @@ async def create_forecast(
     session.add(fs_session)
     await session.commit()
     await session.refresh(fs_session)
-
     return _to_response(fs_session)
 
 
@@ -121,17 +115,14 @@ async def create_forecast(
 async def list_forecasts(
     cik: str,
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user),
 ):
     padded = cik.zfill(10)
     result = await session.execute(
-        select(ForecastSession).where(
-            ForecastSession.cik == padded,
-            ForecastSession.user_id == user.id,
-        ).order_by(ForecastSession.updated_at.desc())
+        select(ForecastSession)
+        .where(ForecastSession.cik == padded)
+        .order_by(ForecastSession.updated_at.desc())
     )
-    sessions = result.scalars().all()
-    return [_to_response(s) for s in sessions]
+    return [_to_response(s) for s in result.scalars().all()]
 
 
 @router.get("/{cik}/forecasts/{session_id}", response_model=ForecastSessionResponse)
@@ -139,14 +130,12 @@ async def get_forecast(
     cik: str,
     session_id: UUID,
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user),
 ):
     padded = cik.zfill(10)
     result = await session.execute(
         select(ForecastSession).where(
             ForecastSession.id == session_id,
             ForecastSession.cik == padded,
-            ForecastSession.user_id == user.id,
         )
     )
     fs_session = result.scalar_one_or_none()
@@ -161,14 +150,12 @@ async def update_forecast(
     session_id: UUID,
     body: UpdateForecastRequest,
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user),
 ):
     padded = cik.zfill(10)
     result = await session.execute(
         select(ForecastSession).where(
             ForecastSession.id == session_id,
             ForecastSession.cik == padded,
-            ForecastSession.user_id == user.id,
         )
     )
     fs_session = result.scalar_one_or_none()
@@ -182,22 +169,17 @@ async def update_forecast(
     if body.forecast_periods is not None:
         fs_session.forecast_periods = [p.model_dump() for p in body.forecast_periods]
 
-    # Re-fetch line items to recompute
-    # We need the base filing's financial statement
-    # Use the most recent period in base_period_ends
     base_periods = fs_session.base_period_ends
     if base_periods:
         from app.models.filing import Filing
-        latest_period = sorted(base_periods)[-1]
+        from app.models.financial_statement import FinancialStatement
         filing_result = await session.execute(
             select(Filing).where(
                 Filing.cik == padded,
-                Filing.period_of_report.cast(str) == latest_period,
-            ).limit(1)
+            ).order_by(Filing.period_of_report.desc()).limit(1)
         )
         filing = filing_result.scalar_one_or_none()
         if filing:
-            from app.models.financial_statement import FinancialStatement
             stmt_result = await session.execute(
                 select(FinancialStatement).where(
                     FinancialStatement.filing_id == filing.id,
@@ -222,14 +204,12 @@ async def delete_forecast(
     cik: str,
     session_id: UUID,
     session: AsyncSession = Depends(get_async_session),
-    user: User = Depends(current_active_user),
 ):
     padded = cik.zfill(10)
     result = await session.execute(
         select(ForecastSession).where(
             ForecastSession.id == session_id,
             ForecastSession.cik == padded,
-            ForecastSession.user_id == user.id,
         )
     )
     fs_session = result.scalar_one_or_none()
