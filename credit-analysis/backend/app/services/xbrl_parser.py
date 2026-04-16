@@ -20,6 +20,7 @@ Each parsed statement is stored as an ordered list of line items:
 }]
 """
 import re
+from datetime import date as _date
 from typing import Any, Optional
 
 from app.services import sec_client
@@ -31,7 +32,7 @@ try:
 except ImportError:
     _EDGARTOOLS_AVAILABLE = False
 
-# Maps XBRL role fragments to our statement_type keys
+# Maps XBRL role fragments to our statement_type keys (used by edgartools path)
 _ROLE_TO_STMT: dict[str, str] = {
     "incomestatement": "income_statement",
     "statementofoperations": "income_statement",
@@ -84,9 +85,58 @@ _CONCEPT_SEMANTIC: dict[str, str] = {
     "netcashprovidedbyusedinfinancingactivities": "cff",
 }
 
+# Semantic ordering within each statement type
+IS_ORDER = [
+    "revenue", "cogs", "gross_profit", "rd_expense", "sga",
+    "operating_income", "ebitda", "interest_expense", "interest_income",
+    "da", "pretax_income", "tax_expense", "net_income",
+    "eps_basic", "eps_diluted", "other",
+]
+BS_ORDER = [
+    "cash", "total_assets", "total_liabilities", "long_term_debt", "total_equity", "other",
+]
+CF_ORDER = ["da", "cfo", "cfi", "cff", "other"]
+
+# Concept name substrings (lowercase, no punctuation) that indicate a cash-flow item.
+# These are duration (not instant) concepts that specifically appear in CF statements.
+_CF_SUBSTRINGS: frozenset = frozenset([
+    "operatingactivit",
+    "investingactivit",
+    "financingactivit",
+    "netcashprovid",
+    "netcashused",
+    "cashprovidedfrom",
+    "cashusedin",
+    "purchaseofproperty",
+    "purchaseofintangible",
+    "purchaseofinvestment",
+    "acquisitionofbusiness",
+    "proceedsfromsale",
+    "proceedsfromdisposal",
+    "proceedsfromissuance",
+    "proceedsfrommaturity",
+    "proceedsfromlong",
+    "repaymentoflong",
+    "repaymentofdebt",
+    "borrowingunderrevol",
+    "paymentofdividend",
+    "dividendspaid",
+    "repurchaseofcommon",
+    "paymentforrepurchase",
+    "effectofexchangerate",
+    "netincreaseincase",
+    "netdecreaseincash",
+    "cashatend",
+    "cashatbegin",
+    "netchangeincash",
+    "capitalexpenditure",
+    "capitallease",
+    "financeleasepayment",
+])
+
 
 def _normalize_concept(concept: str) -> str:
-    """Strip namespace prefix and lowercase for semantic lookup."""
+    """Strip namespace prefix and lowercase/strip punctuation for lookup."""
     if ":" in concept:
         concept = concept.split(":", 1)[1]
     return re.sub(r"[^a-z0-9]", "", concept.lower())
@@ -127,6 +177,52 @@ def _role_to_statement_type(role_uri: str) -> Optional[str]:
     return None
 
 
+def _is_cf_concept(concept_name: str) -> bool:
+    """Return True if the concept name indicates a cash-flow statement item."""
+    norm = re.sub(r"[^a-z0-9]", "", concept_name.lower())
+    return any(sub in norm for sub in _CF_SUBSTRINGS)
+
+
+def _extract_periods_for_form_type(
+    units: dict, form_type: str, is_instant: bool
+) -> dict[str, float]:
+    """
+    Extract {end_date: value} from a concept's units dict, filtered by form_type.
+    For 10-Q duration concepts, skip year-to-date entries (>130 days).
+    """
+    best: dict[str, tuple] = {}  # end_date -> (filed_str, val)
+
+    for unit_type, entries in units.items():
+        if unit_type not in ("USD", "shares", "USD/shares"):
+            continue
+        for entry in entries:
+            if entry.get("form") != form_type:
+                continue
+            end_date = entry.get("end", "")
+            val = entry.get("val")
+            filed = entry.get("filed", "")
+            start_date = entry.get("start", "")
+
+            if val is None or not end_date:
+                continue
+
+            # For quarterly duration concepts, skip YTD entries (>130 days)
+            if form_type == "10-Q" and not is_instant and start_date:
+                try:
+                    s = _date.fromisoformat(start_date)
+                    e = _date.fromisoformat(end_date)
+                    if (e - s).days > 130:
+                        continue
+                except ValueError:
+                    pass
+
+            # Keep the most recently filed value for each period end
+            if end_date not in best or filed > best[end_date][0]:
+                best[end_date] = (filed, val)
+
+    return {k: v[1] for k, v in best.items()}
+
+
 async def parse_filing_statements(
     cik: str,
     accession_no: str,
@@ -155,7 +251,6 @@ async def _parse_via_edgartools(
     """Use edgartools to parse statements from XBRL attachments."""
     padded = cik.zfill(10)
     edgar_company = EdgarCompany(cik=int(padded))
-    # edgartools uses synchronous edgar API internally; wrap in thread if needed
     import asyncio
     loop = asyncio.get_event_loop()
 
@@ -164,6 +259,7 @@ async def _parse_via_edgartools(
         if not filings:
             raise ValueError(f"Filing {accession_no} not found for CIK {cik}")
         filing = filings[0]
+        from edgar import Financials
         financials = Financials.from_filing(filing)
         return financials
 
@@ -198,8 +294,6 @@ def _convert_edgartools_statement(stmt: Any, stmt_type: str) -> list[dict]:
     if df is None or df.empty:
         return []
 
-    # edgartools dataframe has concept as index, period columns as values
-    # It also has 'label' and 'level' columns when available
     for idx, row in df.iterrows():
         concept = str(idx)
         label = row.get("label", concept) if hasattr(row, "get") else concept
@@ -209,7 +303,6 @@ def _convert_edgartools_statement(stmt: Any, stmt_type: str) -> list[dict]:
         level = int(row.get("level", 1)) if hasattr(row, "get") else 1
         is_abstract = bool(row.get("abstract", False)) if hasattr(row, "get") else False
 
-        # Period values: remaining columns are period end dates
         periods: dict[str, Any] = {}
         for col in df.columns:
             if col in ("label", "level", "abstract", "concept"):
@@ -237,67 +330,57 @@ async def _parse_via_company_facts(
     cik: str, form_type: str, period_end: str
 ) -> dict[str, list[dict]]:
     """
-    Fallback: build statements from Company Facts API.
-    Less faithful (no guaranteed ordering) but always available.
+    Fallback: build statements from the SEC Company Facts API.
+
+    Classification strategy:
+    - XBRL concepts with only "instant" entries (no "start" date) → balance_sheet
+    - Duration concepts whose name contains cash-flow keywords → cash_flow
+    - All other duration concepts → income_statement
+
+    This approach is far more inclusive than semantic-type filtering and correctly
+    classifies the vast majority of US-GAAP concepts.
     """
     facts = await sec_client.get_company_facts(cik)
     us_gaap = facts.get("facts", {}).get("us-gaap", {})
     if not us_gaap:
+        print(f"[xbrl_parser] No us-gaap facts found for CIK {cik}")
         return {}
 
-    # Group concepts by statement type using semantic classification
     stmt_concepts: dict[str, list[dict]] = {
         "income_statement": [],
         "balance_sheet": [],
         "cash_flow": [],
     }
 
-    # Canonical ordering for fallback (less faithful but functional)
-    IS_ORDER = [
-        "revenue", "cogs", "gross_profit", "rd_expense", "sga",
-        "operating_income", "interest_expense", "interest_income",
-        "pretax_income", "tax_expense", "net_income", "eps_basic", "eps_diluted",
-    ]
-    BS_ORDER = [
-        "cash", "total_assets", "total_liabilities", "long_term_debt", "total_equity"
-    ]
-    CF_ORDER = ["da", "cfo", "cfi", "cff"]
-
-    stmt_semantic_map = {
-        "income_statement": set(IS_ORDER),
-        "balance_sheet": set(BS_ORDER),
-        "cash_flow": set(CF_ORDER),
-    }
-
     for concept_name, concept_data in us_gaap.items():
         units = concept_data.get("units", {})
         label = concept_data.get("label", concept_name)
-        semantic = _infer_semantic_type(concept_name, label)
 
-        # Find which statement this belongs to
-        target_stmt = None
-        for stype, semset in stmt_semantic_map.items():
-            if semantic in semset:
-                target_stmt = stype
-                break
-        if not target_stmt:
+        # Collect all USD / shares entries to classify the concept
+        all_entries: list[dict] = []
+        for unit_type, entries in units.items():
+            if unit_type in ("USD", "shares", "USD/shares"):
+                all_entries.extend(entries)
+
+        if not all_entries:
             continue
 
-        # Extract values for the target period
-        periods: dict[str, Any] = {}
-        for unit_type, entries in units.items():
-            if unit_type not in ("USD", "shares"):
-                continue
-            for entry in entries:
-                if entry.get("form") not in ("10-K", "10-Q"):
-                    continue
-                end_date = entry.get("end", "")
-                if entry.get("val") is not None:
-                    periods[end_date] = entry["val"]
+        # Instant (no "start") → balance sheet; duration (has "start") → IS or CF
+        has_duration = any("start" in e for e in all_entries)
+        is_instant = not has_duration
 
+        if is_instant:
+            target_stmt = "balance_sheet"
+        elif _is_cf_concept(concept_name):
+            target_stmt = "cash_flow"
+        else:
+            target_stmt = "income_statement"
+
+        periods = _extract_periods_for_form_type(units, form_type, is_instant)
         if not periods:
             continue
 
+        semantic = _infer_semantic_type(concept_name, label)
         stmt_concepts[target_stmt].append({
             "concept": f"us-gaap:{concept_name}",
             "label": label,
@@ -307,29 +390,35 @@ async def _parse_via_company_facts(
             "periods": periods,
         })
 
-    # Sort by canonical order within each statement
-    def _sort_key(item: dict, order: list) -> int:
+    # Sort each statement by semantic priority, then label alphabetically
+    def _sort_key(item: dict, order: list[str]) -> tuple:
+        sem = item["semantic_type"]
         try:
-            return order.index(item["semantic_type"])
+            return (order.index(sem), item["label"])
         except ValueError:
-            return len(order)
+            return (len(order), item["label"])
 
-    results = {}
+    results: dict[str, list[dict]] = {}
     for stmt_type, items in stmt_concepts.items():
         if not items:
             continue
-        order = IS_ORDER if stmt_type == "income_statement" else (
-            BS_ORDER if stmt_type == "balance_sheet" else CF_ORDER
+        order = (
+            IS_ORDER if stmt_type == "income_statement"
+            else BS_ORDER if stmt_type == "balance_sheet"
+            else CF_ORDER
         )
         results[stmt_type] = sorted(items, key=lambda x: _sort_key(x, order))
 
+    print(
+        f"[xbrl_parser] company_facts fallback for {cik}/{form_type}: "
+        + ", ".join(f"{k}={len(v)}" for k, v in results.items())
+    )
     return results
 
 
 def extract_unit_multiplier(line_items: list[dict]) -> int:
     """
     Detect the unit multiplier from values.
-    If median non-zero abs value > 1e8, values are in base units → store as-is with multiplier=1.
-    We store raw values and let the frontend format.
+    Store raw values; let the frontend format.
     """
     return 1
