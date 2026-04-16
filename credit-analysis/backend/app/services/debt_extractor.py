@@ -1,7 +1,7 @@
 """
 Debt instrument extractor - 3-step pipeline:
 
-Step 1: XBRL Dimensional data (LongtermDebtTypeAxis)
+Step 1: XBRL concept-level data (specific debt concepts from companyfacts)
 Step 2: HTML table parsing from 10-K/10-Q debt footnote
 Step 3: EDGAR full-text search for originating filing
 """
@@ -59,6 +59,34 @@ _SENIORITY_KEYWORDS = {
     "pik": "pik",
 }
 
+# Ordered list of XBRL concepts to probe, from most-specific to least-specific.
+# Tuple: (concept_name, display_name, confidence)
+_XBRL_DEBT_CONCEPTS = [
+    ("SeniorNotes", "Senior Notes", 0.75),
+    ("SeniorSecuredNotes", "Senior Secured Notes", 0.80),
+    ("SeniorUnsecuredNotes", "Senior Unsecured Notes", 0.80),
+    ("SeniorSubordinatedNotes", "Senior Subordinated Notes", 0.80),
+    ("SubordinatedNotes", "Subordinated Notes", 0.80),
+    ("JuniorSubordinatedNotes", "Junior Subordinated Notes", 0.80),
+    ("ConvertibleNotesPayable", "Convertible Notes", 0.80),
+    ("SecuredDebt", "Secured Debt", 0.70),
+    ("UnsecuredDebt", "Unsecured Debt", 0.70),
+    ("LineOfCredit", "Revolving Credit Facility", 0.75),
+    ("NotesPayable", "Notes Payable", 0.65),
+    ("LongTermDebtNoncurrent", "Long-Term Debt", 0.60),
+    ("LongTermDebt", "Long-Term Debt (Total)", 0.55),
+]
+
+# Concepts to skip if more specific ones were already found
+_AGGREGATE_FALLBACK_CONCEPTS = {"LongTermDebtNoncurrent", "LongTermDebt"}
+
+_DEBT_TABLE_KEYWORDS = re.compile(
+    r"(senior\s+notes|term\s+loan|revolv|debenture|senior\s+secured|"
+    r"subordinated|convertible|%\s+due\s+|%\s+notes|notes\s+due|"
+    r"credit\s+facility|long.?term\s+debt)",
+    re.IGNORECASE,
+)
+
 
 async def extract_debt_instruments(
     cik: str,
@@ -72,11 +100,14 @@ async def extract_debt_instruments(
     """
     instruments: list[dict] = []
 
-    # Step 1: XBRL dimensional data
+    # Step 1: XBRL concept-level data
     try:
-        step1 = await _extract_from_xbrl_dimensions(cik)
+        step1 = await _extract_from_xbrl_concepts(cik)
         if step1:
+            print(f"[debt_extractor] Step1 found {len(step1)} instruments via XBRL concepts")
             instruments.extend(step1)
+        else:
+            print(f"[debt_extractor] Step1: no XBRL concept data found for {cik}")
     except Exception as e:
         print(f"[debt_extractor] Step1 XBRL failed for {cik}: {e}")
 
@@ -84,14 +115,19 @@ async def extract_debt_instruments(
     if doc_url:
         try:
             step2 = await _extract_from_html(cik, doc_url)
-            # Only add instruments not already found
+            print(f"[debt_extractor] Step2 found {len(step2)} instruments via HTML")
             existing_names = {_normalize_name(i["instrument_name"]) for i in instruments}
             for inst in step2:
-                if _normalize_name(inst["instrument_name"]) not in existing_names:
+                norm = _normalize_name(inst["instrument_name"])
+                if norm not in existing_names:
                     instruments.append(inst)
-                    existing_names.add(_normalize_name(inst["instrument_name"]))
+                    existing_names.add(norm)
         except Exception as e:
             print(f"[debt_extractor] Step2 HTML failed for {cik}: {e}")
+    else:
+        print(f"[debt_extractor] Step2 skipped: no doc_url for {cik}")
+
+    print(f"[debt_extractor] Total instruments after Steps 1+2: {len(instruments)}")
 
     # Step 3: Link each instrument to its originating filing
     for inst in instruments:
@@ -104,53 +140,68 @@ async def extract_debt_instruments(
     return instruments
 
 
-async def _extract_from_xbrl_dimensions(cik: str) -> list[dict]:
+async def _extract_from_xbrl_concepts(cik: str) -> list[dict]:
     """
-    Look for LongtermDebtTypeAxis dimensional data in companyfacts.
+    Look for common debt XBRL concepts in the companyfacts API.
+    The companyfacts API does NOT expose segment/dimensional breakdowns,
+    so we probe specific concept names directly.
     """
     facts = await sec_client.get_company_facts(cik)
     us_gaap = facts.get("facts", {}).get("us-gaap", {})
 
     instruments = []
-    for concept_name, concept_data in us_gaap.items():
-        # Look for debt concepts with dimensional members
-        if "LongTerm" not in concept_name and "Debt" not in concept_name:
+    seen = set()
+    has_specific = False  # True once we find a more specific concept than the aggregate fallbacks
+
+    for concept_name, display_name, confidence in _XBRL_DEBT_CONCEPTS:
+        if concept_name not in us_gaap:
             continue
-        units = concept_data.get("units", {})
-        for unit_type, entries in units.items():
-            if unit_type != "USD":
-                continue
-            for entry in entries:
-                segment = entry.get("segment")
-                if not segment:
-                    continue
-                # dimensional entry has a segment with LongtermDebtTypeAxis
-                dim = segment.get("dimension", "")
-                member = segment.get("member", "")
-                if "LongtermDebtType" not in dim and "DebtInstrument" not in dim:
-                    continue
 
-                name = _member_to_name(member)
-                if not name:
-                    continue
+        # Skip aggregate fallbacks if we already have specific instruments
+        if has_specific and concept_name in _AGGREGATE_FALLBACK_CONCEPTS:
+            continue
 
-                instruments.append({
-                    "instrument_name": name,
-                    "instrument_type": _classify_instrument_type(name),
-                    "seniority": _classify_seniority(name),
-                    "principal_amount": entry.get("val"),
-                    "currency": "USD",
-                    "coupon_rate": None,
-                    "coupon_type": None,
-                    "floating_benchmark": None,
-                    "floating_spread": None,
-                    "maturity_date": None,
-                    "issuance_date": _parse_date(entry.get("start")),
-                    "confidence_score": 0.9,
-                    "originating_doc_url": None,
-                    "originating_doc_type": None,
-                    "raw_data": entry,
-                })
+        units_data = us_gaap[concept_name].get("units", {}).get("USD", [])
+        if not units_data:
+            continue
+
+        # Prefer 10-K FY entries with a positive value
+        fy_entries = [
+            e for e in units_data
+            if e.get("form") in ("10-K",) and (e.get("val") or 0) > 0
+        ]
+        if not fy_entries:
+            fy_entries = [e for e in units_data if (e.get("val") or 0) > 0]
+        if not fy_entries:
+            continue
+
+        recent = max(fy_entries, key=lambda e: e.get("end", ""))
+
+        norm = _normalize_name(display_name)
+        if norm in seen:
+            continue
+        seen.add(norm)
+
+        if concept_name not in _AGGREGATE_FALLBACK_CONCEPTS:
+            has_specific = True
+
+        instruments.append({
+            "instrument_name": display_name,
+            "instrument_type": _classify_instrument_type(display_name),
+            "seniority": _classify_seniority(display_name),
+            "principal_amount": recent.get("val"),
+            "currency": "USD",
+            "coupon_rate": None,
+            "coupon_type": "fixed",
+            "floating_benchmark": None,
+            "floating_spread": None,
+            "maturity_date": None,
+            "issuance_date": _parse_date(recent.get("start")),
+            "confidence_score": confidence,
+            "originating_doc_url": None,
+            "originating_doc_type": None,
+            "raw_data": {"concept": concept_name, "entry": recent},
+        })
 
     return instruments
 
@@ -159,51 +210,116 @@ async def _extract_from_html(cik: str, doc_url: str) -> list[dict]:
     """
     Parse the 10-K HTML to find the long-term debt footnote table.
     """
-    html_bytes = await sec_client.get_filing_document(doc_url)
+    try:
+        html_bytes = await sec_client.get_filing_document(doc_url)
+    except Exception as e:
+        print(f"[debt_extractor] Failed to fetch {doc_url}: {e}")
+        return []
+
     html = html_bytes.decode("utf-8", errors="replace")
+    print(f"[debt_extractor] Fetched HTML doc size={len(html):,} bytes")
     soup = BeautifulSoup(html, "lxml")
 
     # Find the debt section heading
     debt_section = _find_debt_section(soup)
-    if not debt_section:
-        return []
+    print(f"[debt_extractor] Debt section heading found: {debt_section is not None}")
+    if debt_section:
+        print(f"[debt_extractor] Debt section text: {debt_section.get_text(strip=True)[:100]}")
 
-    # Find the nearest table after the heading
-    table = None
-    for sibling in debt_section.find_next_siblings():
-        if sibling.name == "table":
-            table = sibling
-            break
-        if sibling.name in ("h2", "h3", "h4") and sibling != debt_section:
-            break
+    instruments = []
 
-    if not table:
-        # Try looking for any table within 3000 chars of the heading
-        heading_pos = str(soup).find(str(debt_section))
-        if heading_pos > 0:
-            snippet = str(soup)[heading_pos:heading_pos + 5000]
-            snippet_soup = BeautifulSoup(snippet, "lxml")
-            table = snippet_soup.find("table")
+    if debt_section:
+        # Search sibling elements for a table
+        stop_tags = {"h1", "h2"}
+        for sibling in debt_section.find_next_siblings():
+            if sibling.name in stop_tags:
+                break
+            if sibling.name == "h3" or sibling.name == "h4":
+                txt = sibling.get_text(strip=True).lower()
+                if not any(kw in txt for kw in ["debt", "note", "borrow", "credit"]):
+                    break
+            if sibling.name == "table":
+                parsed = _parse_debt_table(sibling, cik)
+                instruments.extend(parsed)
+                if instruments:
+                    break
 
-    if not table:
-        return []
+        if not instruments:
+            # Search within parent container
+            parent = debt_section.parent
+            if parent:
+                for table in parent.find_all("table", recursive=True):
+                    parsed = _parse_debt_table(table, cik)
+                    if parsed:
+                        instruments.extend(parsed)
+                        break
 
-    return _parse_debt_table(table, cik)
+    if not instruments:
+        # Fallback: scan all tables for debt-related content
+        instruments = _scan_all_tables_for_debt(soup, cik)
+        if instruments:
+            print(f"[debt_extractor] Found {len(instruments)} instruments via full-table scan")
+
+    return instruments
+
+
+def _scan_all_tables_for_debt(soup: BeautifulSoup, cik: str) -> list[dict]:
+    """Scan all tables in the document for debt-related content."""
+    instruments = []
+    seen = set()
+    for table in soup.find_all("table"):
+        table_text = table.get_text()
+        if _DEBT_TABLE_KEYWORDS.search(table_text):
+            parsed = _parse_debt_table(table, cik)
+            for inst in parsed:
+                norm = _normalize_name(inst["instrument_name"])
+                if norm not in seen:
+                    instruments.append(inst)
+                    seen.add(norm)
+    return instruments
 
 
 def _find_debt_section(soup: BeautifulSoup) -> Optional[Any]:
     """Find the heading element for the long-term debt note."""
     patterns = [
-        re.compile(r"long.?term debt", re.IGNORECASE),
-        re.compile(r"debt and credit", re.IGNORECASE),
+        re.compile(r"long.?term\s+debt", re.IGNORECASE),
+        re.compile(r"debt\s+and\s+(credit|financing|borrowing)", re.IGNORECASE),
+        re.compile(r"note\s+\d+\s*[–\-:\.]\s*(?:long.?term\s+)?debt", re.IGNORECASE),
+        re.compile(r"debt\s+obligations", re.IGNORECASE),
         re.compile(r"borrowings", re.IGNORECASE),
-        re.compile(r"note\s+\d+.*debt", re.IGNORECASE),
     ]
-    for tag in soup.find_all(["h1", "h2", "h3", "h4", "p", "div"]):
+
+    # Heading tags first
+    for tag in soup.find_all(["h1", "h2", "h3", "h4"]):
         text = tag.get_text(strip=True)
+        if len(text) > 200:
+            continue
         for pat in patterns:
-            if pat.search(text) and len(text) < 200:
+            if pat.search(text):
                 return tag
+
+    # div/span/p with bold styling (iXBRL uses these for headings)
+    for tag in soup.find_all(["p", "div", "span"]):
+        text = tag.get_text(strip=True)
+        if not text or len(text) > 200:
+            continue
+        for pat in patterns:
+            if pat.search(text):
+                style = tag.get("style", "").lower()
+                classes = " ".join(tag.get("class", [])).lower()
+                if any(kw in style for kw in ["bold", "font-weight"]):
+                    return tag
+                if any(kw in classes for kw in ["bold", "heading", "title"]):
+                    return tag
+
+    # Final fallback: any short element containing debt text
+    for tag in soup.find_all(["p", "div"]):
+        text = tag.get_text(strip=True)
+        if 5 < len(text) < 120:
+            for pat in patterns:
+                if pat.search(text):
+                    return tag
+
     return None
 
 
@@ -218,7 +334,7 @@ def _parse_debt_table(table: Any, cik: str) -> list[dict]:
             continue
 
         name = cells[0]
-        if len(name) < 5 or name.lower() in ("total", "total long-term debt", "less:"):
+        if len(name) < 5 or name.lower() in ("total", "total long-term debt", "less:", "less current portion"):
             continue
 
         inst = _parse_instrument_row(name, cells)
@@ -329,8 +445,6 @@ async def _find_originating_filing(inst: dict, cik: str) -> None:
     Modifies the instrument dict in place.
     """
     name = inst["instrument_name"]
-    # Build search query from key parts of the name
-    # e.g. "6.25% Senior Notes due 2032" → "6.25% Senior Notes"
     query_parts = []
     rate_match = _RATE_RE.search(name)
     if rate_match:
@@ -351,7 +465,6 @@ async def _find_originating_filing(inst: dict, cik: str) -> None:
     start_dt = None
     end_dt = None
     if maturity and isinstance(maturity, date):
-        # Search filings from 5 years before maturity to now
         start_yr = max(2000, maturity.year - 15)
         start_dt = f"{start_yr}-01-01"
         end_dt = datetime.now().strftime("%Y-%m-%d")
@@ -367,7 +480,6 @@ async def _find_originating_filing(inst: dict, cik: str) -> None:
         )
         hits = results.get("hits", {}).get("hits", [])
         if not hits:
-            # Try without CIK filter
             results = await sec_client.search_fulltext(
                 query=query,
                 forms="8-K,S-3,424B5",
@@ -383,11 +495,8 @@ async def _find_originating_filing(inst: dict, cik: str) -> None:
     best_hit = hits[0]
     source = best_hit.get("_source", {})
     filing_id_str = best_hit.get("_id", "")
-    acc_no = source.get("file_date", "")
     entity_id = source.get("entity_id", cik)
 
-    # Try to get the accession number from the hit
-    # EDGAR EFTS returns _id in format "accession_number_no_dashes"
     if filing_id_str and len(filing_id_str) == 18:
         acc_raw = filing_id_str
         form_type = source.get("form_type", "8-K")
@@ -402,7 +511,6 @@ async def _find_originating_filing(inst: dict, cik: str) -> None:
                     )
                     inst["originating_doc_type"] = _classify_doc_type(item["name"], form_type)
                     return
-            # Fall back to the primary doc
             for item in items:
                 if item.get("type") in ("10-K", "8-K", "S-3", "424B5"):
                     inst["originating_doc_url"] = sec_client.build_doc_url(
@@ -413,15 +521,7 @@ async def _find_originating_filing(inst: dict, cik: str) -> None:
         except Exception:
             pass
 
-    # Minimal fallback: point to EDGAR search
     inst["originating_doc_type"] = "8-K"
-
-
-def _member_to_name(member: str) -> str:
-    """Convert XBRL member name to human-readable instrument name."""
-    name = re.sub(r"([A-Z])", r" \1", member).strip()
-    name = re.sub(r"\s+", " ", name)
-    return name.replace("Member", "").strip()
 
 
 def _classify_instrument_type(name: str) -> str:
@@ -439,7 +539,7 @@ def _classify_seniority(name: str) -> str:
             return seniority
     if "notes" in name_lower or "debenture" in name_lower:
         return "senior_unsecured"
-    if "term loan" in name_lower or "revolver" in name_lower:
+    if "term loan" in name_lower or "revolver" in name_lower or "credit facility" in name_lower:
         return "senior_secured"
     return "senior_unsecured"
 

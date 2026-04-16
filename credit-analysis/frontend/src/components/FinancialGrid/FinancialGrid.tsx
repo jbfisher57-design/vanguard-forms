@@ -31,7 +31,12 @@ export function FinancialGrid({ data, forecastValues, onRowClick }: Props) {
               className="sticky left-0 z-20 text-left px-3 py-2 font-semibold text-white text-xs whitespace-nowrap"
               style={{ background: "#1e3a5f", minWidth: 260, width: 260 }}
             >
-              Line Item
+              <span>Line Item</span>
+              {data.unit && data.unit !== "USD" && (
+                <span className="ml-2 font-normal text-blue-200 text-xs">
+                  ({data.unit})
+                </span>
+              )}
             </th>
             {columns.map((col) => (
               <th

@@ -207,12 +207,50 @@ async def get_financials(
             )
         )
 
+    # ── Detect unit scale (millions vs raw USD) ───────────────────────────────
+    all_vals = [
+        abs(v)
+        for row in rows
+        for v in row.values.values()
+        if isinstance(v, (int, float)) and v != 0 and not row.is_abstract
+    ]
+    unit = "USD"
+    scale = 1
+    if all_vals:
+        sorted_abs = sorted(all_vals)
+        median_val = sorted_abs[len(sorted_abs) // 2]
+        if median_val >= 500_000:
+            scale = 1_000_000
+            unit = "USD millions"
+        elif median_val >= 500:
+            scale = 1_000
+            unit = "USD thousands"
+
+    if scale > 1:
+        scaled_rows = []
+        for row in rows:
+            scaled_vals = {
+                k: round(v / scale, 2) if isinstance(v, (int, float)) else v
+                for k, v in row.values.items()
+            }
+            scaled_rows.append(
+                GridRow(
+                    row_id=row.row_id,
+                    label=row.label,
+                    level=row.level,
+                    is_abstract=row.is_abstract,
+                    semantic_type=row.semantic_type,
+                    values=scaled_vals,
+                )
+            )
+        rows = scaled_rows
+
     grid = FinancialGrid(
         cik=padded,
         company_name=company.name,
         statement_type=statement,
         form_type=form_type,
-        unit="USD",
+        unit=unit,
         columns=columns,
         rows=rows,
     )

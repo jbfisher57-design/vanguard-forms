@@ -1,13 +1,11 @@
 export function formatValue(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined || value === 0) return "—";
   const abs = Math.abs(value);
   let formatted: string;
-  if (abs >= 1_000_000_000) {
-    formatted = (abs / 1_000_000_000).toFixed(1) + "B";
-  } else if (abs >= 1_000_000) {
-    formatted = (abs / 1_000_000).toFixed(1) + "M";
-  } else if (abs >= 1_000) {
-    formatted = abs.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  if (abs >= 1_000) {
+    formatted = Math.round(abs).toLocaleString("en-US");
+  } else if (abs >= 1) {
+    formatted = abs.toFixed(1);
   } else {
     formatted = abs.toFixed(2);
   }

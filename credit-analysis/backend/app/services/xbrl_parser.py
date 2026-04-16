@@ -1,38 +1,43 @@
 """
 XBRL parser service.
 
-Fetches a 10-K or 10-Q filing's XBRL attachments and extracts ordered
-financial statements (income statement, balance sheet, cash flow) via the
-presentation linkbase. Falls back to the Company Facts API when XBRL
-attachments are unavailable.
+Primary path: parse the filing's XBRL presentation linkbase (.pre.xml)
+to get concepts in filing order with proper hierarchy.
 
-Each parsed statement is stored as an ordered list of line items:
+Fallback: use the SEC Company Facts API (flatter, less faithful ordering).
+
+Output line-item format:
 [{
-    concept: str,           # XBRL concept (e.g. "us-gaap:Revenues")
-    label: str,             # Label from .LAB file as company wrote it
+    concept: str,           # "us-gaap:Revenues"
+    label: str,             # Label exactly as filed
     level: int,             # Indentation depth (1 = top)
-    is_abstract: bool,      # True for header/grouping rows
-    semantic_type: str,     # "revenue" | "cogs" | "gross_profit" | etc.
-    periods: {              # ISO date -> value (None for abstract rows)
-        "2024-09-28": 391035000000,
-        "2023-09-30": 383285000000,
+    is_abstract: bool,      # True for section-header rows
+    semantic_type: str,     # "revenue" | "cogs" | ...
+    periods: {              # ISO-date -> raw USD value
+        "2024-12-31": 97690000000,
+        "2023-12-31": 96773000000,
     }
 }]
 """
 import re
+import xml.etree.ElementTree as ET
 from datetime import date as _date
 from typing import Any, Optional
 
 from app.services import sec_client
 
-# edgartools is optional — used when available for richer presentation-order parsing
+# edgartools optional
 try:
-    from edgar import Company as EdgarCompany  # edgartools pip package
+    from edgar import Company as EdgarCompany
     _EDGARTOOLS_AVAILABLE = True
 except ImportError:
     _EDGARTOOLS_AVAILABLE = False
 
-# Maps XBRL role fragments to our statement_type keys (used by edgartools path)
+# ── XML namespaces ────────────────────────────────────────────────────────────
+_LINK_NS = "http://www.xbrl.org/2003/linkbase"
+_XLINK_NS = "http://www.w3.org/1999/xlink"
+
+# ── Role URI → statement type ─────────────────────────────────────────────────
 _ROLE_TO_STMT: dict[str, str] = {
     "incomestatement": "income_statement",
     "statementofoperations": "income_statement",
@@ -40,6 +45,7 @@ _ROLE_TO_STMT: dict[str, str] = {
     "consolidatedstatementsofincome": "income_statement",
     "statementsofoperations": "income_statement",
     "operationsstatement": "income_statement",
+    "comprehensiveincome": "income_statement",
     "balancesheet": "balance_sheet",
     "consolidatedbalancesheets": "balance_sheet",
     "financialposition": "balance_sheet",
@@ -50,7 +56,7 @@ _ROLE_TO_STMT: dict[str, str] = {
     "statementofcashflows": "cash_flow",
 }
 
-# Semantic type inference based on known XBRL concept names
+# ── Semantic type inference ───────────────────────────────────────────────────
 _CONCEPT_SEMANTIC: dict[str, str] = {
     "revenues": "revenue",
     "revenuefromcontractwithcustomerexcludingassessedtax": "revenue",
@@ -62,7 +68,6 @@ _CONCEPT_SEMANTIC: dict[str, str] = {
     "costofgoodssold": "cogs",
     "grossprofit": "gross_profit",
     "operatingincomeloss": "operating_income",
-    "ebitda": "ebitda",
     "incomelossfromcontinuingoperationsbeforeincometaxes": "pretax_income",
     "incometaxexpensebenefit": "tax_expense",
     "netincomeloss": "net_income",
@@ -85,58 +90,31 @@ _CONCEPT_SEMANTIC: dict[str, str] = {
     "netcashprovidedbyusedinfinancingactivities": "cff",
 }
 
-# Semantic ordering within each statement type
-IS_ORDER = [
-    "revenue", "cogs", "gross_profit", "rd_expense", "sga",
-    "operating_income", "ebitda", "interest_expense", "interest_income",
-    "da", "pretax_income", "tax_expense", "net_income",
-    "eps_basic", "eps_diluted", "other",
-]
-BS_ORDER = [
-    "cash", "total_assets", "total_liabilities", "long_term_debt", "total_equity", "other",
-]
-CF_ORDER = ["da", "cfo", "cfi", "cff", "other"]
+IS_ORDER = ["revenue","cogs","gross_profit","rd_expense","sga",
+            "operating_income","interest_expense","interest_income",
+            "da","pretax_income","tax_expense","net_income",
+            "eps_basic","eps_diluted","other"]
+BS_ORDER = ["cash","total_assets","total_liabilities","long_term_debt","total_equity","other"]
+CF_ORDER = ["da","cfo","cfi","cff","other"]
 
-# Concept name substrings (lowercase, no punctuation) that indicate a cash-flow item.
-# These are duration (not instant) concepts that specifically appear in CF statements.
+# Keywords that identify cash-flow concepts (duration, but not IS)
 _CF_SUBSTRINGS: frozenset = frozenset([
-    "operatingactivit",
-    "investingactivit",
-    "financingactivit",
-    "netcashprovid",
-    "netcashused",
-    "cashprovidedfrom",
-    "cashusedin",
-    "purchaseofproperty",
-    "purchaseofintangible",
-    "purchaseofinvestment",
-    "acquisitionofbusiness",
-    "proceedsfromsale",
-    "proceedsfromdisposal",
-    "proceedsfromissuance",
-    "proceedsfrommaturity",
-    "proceedsfromlong",
-    "repaymentoflong",
-    "repaymentofdebt",
-    "borrowingunderrevol",
-    "paymentofdividend",
-    "dividendspaid",
-    "repurchaseofcommon",
-    "paymentforrepurchase",
-    "effectofexchangerate",
-    "netincreaseincase",
-    "netdecreaseincash",
-    "cashatend",
-    "cashatbegin",
-    "netchangeincash",
-    "capitalexpenditure",
-    "capitallease",
-    "financeleasepayment",
+    "operatingactivit","investingactivit","financingactivit",
+    "netcashprovid","netcashused","cashprovided","cashused",
+    "purchaseofproperty","purchaseofintangible","purchaseofinvestment",
+    "acquisitionofbusiness","proceedsfromsale","proceedsfromdisposal",
+    "proceedsfromissuance","proceedsfrommaturity","proceedsfromlong",
+    "repaymentoflong","repaymentofdebt","borrowingunderrevol",
+    "paymentofdividend","dividendspaid","repurchaseofcommon",
+    "paymentforrepurchase","effectofexchangerate",
+    "netincreaseincase","netdecreaseincash","cashatend","cashatbegin",
+    "netchangeincash","capitalexpenditure","financeleasepayment",
 ])
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
 def _normalize_concept(concept: str) -> str:
-    """Strip namespace prefix and lowercase/strip punctuation for lookup."""
     if ":" in concept:
         concept = concept.split(":", 1)[1]
     return re.sub(r"[^a-z0-9]", "", concept.lower())
@@ -148,29 +126,27 @@ def _infer_semantic_type(concept: str, label: str) -> str:
         return _CONCEPT_SEMANTIC[key]
     if not label:
         return "other"
-    # Label-based heuristics
-    label_lower = label.lower()
-    if "revenue" in label_lower or "net sales" in label_lower:
+    ll = label.lower()
+    if "revenue" in ll or "net sales" in ll:
         return "revenue"
-    if "cost of" in label_lower:
+    if "cost of" in ll:
         return "cogs"
-    if "gross profit" in label_lower:
+    if "gross profit" in ll:
         return "gross_profit"
-    if "operating income" in label_lower or "operating loss" in label_lower:
+    if "operating income" in ll or "operating loss" in ll:
         return "operating_income"
-    if "net income" in label_lower or "net loss" in label_lower:
+    if "net income" in ll or "net loss" in ll:
         return "net_income"
-    if "depreciation" in label_lower or "amortization" in label_lower:
+    if "depreciation" in ll or "amortization" in ll:
         return "da"
-    if "interest expense" in label_lower:
+    if "interest expense" in ll:
         return "interest_expense"
-    if "income tax" in label_lower:
+    if "income tax" in ll:
         return "tax_expense"
     return "other"
 
 
 def _role_to_statement_type(role_uri: str) -> Optional[str]:
-    """Map a presentation role URI to one of our statement type keys."""
     fragment = role_uri.lower().split("/")[-1]
     normalized = re.sub(r"[^a-z]", "", fragment)
     for key, stmt_type in _ROLE_TO_STMT.items():
@@ -180,19 +156,29 @@ def _role_to_statement_type(role_uri: str) -> Optional[str]:
 
 
 def _is_cf_concept(concept_name: str) -> bool:
-    """Return True if the concept name indicates a cash-flow statement item."""
     norm = re.sub(r"[^a-z0-9]", "", concept_name.lower())
     return any(sub in norm for sub in _CF_SUBSTRINGS)
+
+
+def _camel_to_label(name: str) -> str:
+    """CamelCase → human readable (fallback when no label available)."""
+    s = re.sub(r"([A-Z])", r" \1", name).strip()
+    return re.sub(r"\s+", " ", s)
+
+
+def _get_all_unit_entries(units: dict) -> list:
+    out = []
+    for unit_type, entries in units.items():
+        if unit_type in ("USD", "shares", "USD/shares"):
+            out.extend(entries)
+    return out
 
 
 def _extract_periods_for_form_type(
     units: dict, form_type: str, is_instant: bool
 ) -> dict[str, float]:
-    """
-    Extract {end_date: value} from a concept's units dict, filtered by form_type.
-    For 10-Q duration concepts, skip year-to-date entries (>130 days).
-    """
-    best: dict[str, tuple] = {}  # end_date -> (filed_str, val)
+    """Return {end_date: value} filtered by form_type; skip YTD entries for 10-Q."""
+    best: dict[str, tuple] = {}  # end_date -> (filed, val)
 
     for unit_type, entries in units.items():
         if unit_type not in ("USD", "shares", "USD/shares"):
@@ -204,11 +190,9 @@ def _extract_periods_for_form_type(
             val = entry.get("val")
             filed = entry.get("filed", "")
             start_date = entry.get("start", "")
-
             if val is None or not end_date:
                 continue
-
-            # For quarterly duration concepts, skip YTD entries (>130 days)
+            # Skip YTD entries for quarterly display
             if form_type == "10-Q" and not is_instant and start_date:
                 try:
                     s = _date.fromisoformat(start_date)
@@ -217,13 +201,13 @@ def _extract_periods_for_form_type(
                         continue
                 except ValueError:
                     pass
-
-            # Keep the most recently filed value for each period end
             if end_date not in best or filed > best[end_date][0]:
                 best[end_date] = (filed, val)
 
     return {k: v[1] for k, v in best.items()}
 
+
+# ── Main entry point ──────────────────────────────────────────────────────────
 
 async def parse_filing_statements(
     cik: str,
@@ -233,119 +217,196 @@ async def parse_filing_statements(
     period_end: str,
 ) -> dict[str, list[dict]]:
     """
-    Parse all financial statements for a given filing.
-    Returns {statement_type: [line_item, ...]}
-    Tries edgartools first (faithful presentation order), falls back to
-    Company Facts API which is always available.
+    Return {statement_type: [line_item, ...]} for the given filing.
+    Tries XBRL presentation linkbase first (faithful filing order),
+    then falls back to Company Facts API classification.
     """
-    if _EDGARTOOLS_AVAILABLE:
+    # Fetch company facts once — reused by both paths
+    facts = await sec_client.get_company_facts(cik)
+
+    # Primary: parse .pre.xml for faithful presentation order
+    result: dict[str, list[dict]] = {}
+    if accession_no_raw:
         try:
-            return await _parse_via_edgartools(cik, accession_no)
+            result = await _parse_via_xbrl_files(cik, accession_no_raw, form_type, facts)
         except Exception as e:
-            print(f"[xbrl_parser] edgartools failed for {cik}/{accession_no}: {e}")
+            import traceback
+            print(f"[xbrl_parser] .pre.xml parse failed for {cik}: {e}")
+            traceback.print_exc()
 
-    return await _parse_via_company_facts(cik, form_type, period_end)
+    # Fill any missing statements from the Company Facts fallback
+    needed = {"income_statement", "balance_sheet", "cash_flow"}
+    missing = needed - set(result.keys())
+    if missing:
+        cf = _parse_via_company_facts_data(facts, form_type)
+        for s in missing:
+            if s in cf:
+                result[s] = cf[s]
+
+    return result
 
 
-async def _parse_via_edgartools(
-    cik: str, accession_no: str
+# ── XBRL presentation-linkbase parser ────────────────────────────────────────
+
+async def _parse_via_xbrl_files(
+    cik: str,
+    accession_no_raw: str,
+    form_type: str,
+    facts: dict,
 ) -> dict[str, list[dict]]:
-    """Use edgartools to parse statements from XBRL attachments."""
-    padded = cik.zfill(10)
-    edgar_company = EdgarCompany(cik=int(padded))
-    import asyncio
-    loop = asyncio.get_event_loop()
+    """
+    1. Fetch filing index → find .pre.xml
+    2. Parse presentation tree to get concept order and hierarchy
+    3. Look up period values from Company Facts
+    """
+    # ── Find .pre.xml ─────────────────────────────────────────────────────────
+    try:
+        index = await sec_client.get_filing_index(cik, accession_no_raw)
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch filing index: {e}")
 
-    def _fetch():
-        filings = edgar_company.get_filings(accession_number=accession_no)
-        if not filings:
-            raise ValueError(f"Filing {accession_no} not found for CIK {cik}")
-        filing = filings[0]
-        from edgar import Financials
-        financials = Financials.from_filing(filing)
-        return financials
+    items = index.get("directory", {}).get("item", [])
+    pre_file = next(
+        (i["name"] for i in items
+         if i.get("name", "").endswith("_pre.xml")
+         or i.get("name", "").endswith("-pre.xml")),
+        None,
+    )
+    if not pre_file:
+        raise RuntimeError(f"No .pre.xml in filing {accession_no_raw}")
 
-    financials = await loop.run_in_executor(None, _fetch)
+    # ── Fetch and parse XML ───────────────────────────────────────────────────
+    pre_url = sec_client.build_doc_url(cik, accession_no_raw, pre_file)
+    pre_bytes = await sec_client.get_filing_document(pre_url)
+    try:
+        root = ET.fromstring(pre_bytes)
+    except ET.ParseError as e:
+        raise RuntimeError(f"XML parse error in {pre_file}: {e}")
 
+    # ── Build concept → {label, periods} from Company Facts ──────────────────
+    us_gaap = facts.get("facts", {}).get("us-gaap", {})
+    concept_map: dict[str, dict] = {}
+    for cname, cdata in us_gaap.items():
+        label = cdata.get("label") or cname
+        if "(Deprecated" in label or "Deprecated" in cname:
+            continue
+        all_entries = _get_all_unit_entries(cdata.get("units", {}))
+        is_instant = bool(all_entries) and not any("start" in e for e in all_entries)
+        periods = _extract_periods_for_form_type(
+            cdata.get("units", {}), form_type, is_instant
+        )
+        concept_map[cname] = {"label": label, "periods": periods, "is_instant": is_instant}
+
+    # ── Parse each presentationLink ──────────────────────────────────────────
     results: dict[str, list[dict]] = {}
 
-    stmt_map = {
-        "income_statement": financials.income_statement,
-        "balance_sheet": financials.balance_sheet,
-        "cash_flow": financials.cash_flow_statement,
-    }
-
-    for stmt_type, stmt in stmt_map.items():
-        if stmt is None:
+    for plink in root.findall(f"{{{_LINK_NS}}}presentationLink"):
+        role = plink.get(f"{{{_XLINK_NS}}}role", "")
+        stmt_type = _role_to_statement_type(role)
+        if not stmt_type or stmt_type in results:
             continue
-        line_items = _convert_edgartools_statement(stmt, stmt_type)
+
+        # Locator map: xlink:label → concept_name
+        loc_map: dict[str, str] = {}
+        for loc in plink.findall(f"{{{_LINK_NS}}}loc"):
+            xlink_lbl = loc.get(f"{{{_XLINK_NS}}}label", "")
+            href = loc.get(f"{{{_XLINK_NS}}}href", "")
+            if "#" not in href:
+                continue
+            concept_ref = href.split("#")[1]
+            # concept_ref = "us-gaap_Revenues" or "tsla_AutomotiveSales"
+            if "_" in concept_ref:
+                ns, cname = concept_ref.split("_", 1)
+            else:
+                ns, cname = "us-gaap", concept_ref
+            # Only include us-gaap concepts (others lack Company Facts values)
+            if ns == "us-gaap":
+                loc_map[xlink_lbl] = cname
+
+        if not loc_map:
+            continue
+
+        # Build parent→children adjacency from arcs
+        children: dict[str, list[tuple[float, str]]] = {}
+        all_to: set[str] = set()
+
+        for arc in plink.findall(f"{{{_LINK_NS}}}presentationArc"):
+            from_lbl = arc.get(f"{{{_XLINK_NS}}}from", "")
+            to_lbl = arc.get(f"{{{_XLINK_NS}}}to", "")
+            try:
+                order = float(arc.get("order", "0"))
+            except ValueError:
+                order = 0.0
+            if from_lbl not in children:
+                children[from_lbl] = []
+            children[from_lbl].append((order, to_lbl))
+            all_to.add(to_lbl)
+
+        for parent in children:
+            children[parent].sort(key=lambda x: x[0])
+
+        root_labels = [lbl for lbl in loc_map if lbl not in all_to]
+
+        # DFS traversal → ordered line items
+        line_items: list[dict] = []
+        visited: set[str] = set()
+
+        def traverse(lbl: str, depth: int) -> None:
+            if lbl in visited:
+                return
+            visited.add(lbl)
+
+            cname = loc_map.get(lbl)
+            if not cname:
+                return
+
+            has_ch = lbl in children
+            data = concept_map.get(cname)
+
+            if data:
+                periods = data["periods"]
+                label_text = data["label"]
+            else:
+                periods = {}
+                label_text = _camel_to_label(cname)
+
+            is_abstract = (not periods) and has_ch
+
+            if periods or has_ch:
+                line_items.append({
+                    "concept": f"us-gaap:{cname}",
+                    "label": label_text,
+                    "level": depth,
+                    "is_abstract": is_abstract,
+                    "semantic_type": _infer_semantic_type(cname, label_text),
+                    "periods": periods,
+                })
+
+            if has_ch:
+                for _, child_lbl in children[lbl]:
+                    traverse(child_lbl, depth + 1)
+
+        for root_lbl in root_labels:
+            traverse(root_lbl, 1)
+
         if line_items:
             results[stmt_type] = line_items
+            print(f"[xbrl_parser] .pre.xml {stmt_type}: {len(line_items)} items from {pre_file}")
 
     return results
 
 
-def _convert_edgartools_statement(stmt: Any, stmt_type: str) -> list[dict]:
-    """Convert an edgartools Statement object to our line_item format."""
-    line_items = []
-    try:
-        df = stmt.to_dataframe()
-    except Exception:
-        return []
+# ── Company Facts fallback ───────────────────────────────────────────────────
 
-    if df is None or df.empty:
-        return []
-
-    for idx, row in df.iterrows():
-        concept = str(idx)
-        label = row.get("label", concept) if hasattr(row, "get") else concept
-        if not label or label == "nan":
-            label = concept
-
-        level = int(row.get("level", 1)) if hasattr(row, "get") else 1
-        is_abstract = bool(row.get("abstract", False)) if hasattr(row, "get") else False
-
-        periods: dict[str, Any] = {}
-        for col in df.columns:
-            if col in ("label", "level", "abstract", "concept"):
-                continue
-            val = row[col]
-            if val is not None and str(val) not in ("nan", "None", ""):
-                try:
-                    periods[str(col)] = float(val)
-                except (ValueError, TypeError):
-                    pass
-
-        line_items.append({
-            "concept": concept,
-            "label": str(label),
-            "level": level,
-            "is_abstract": is_abstract,
-            "semantic_type": _infer_semantic_type(concept, str(label)),
-            "periods": periods,
-        })
-
-    return line_items
-
-
-async def _parse_via_company_facts(
-    cik: str, form_type: str, period_end: str
+def _parse_via_company_facts_data(
+    facts: dict, form_type: str
 ) -> dict[str, list[dict]]:
     """
-    Fallback: build statements from the SEC Company Facts API.
-
-    Classification strategy:
-    - XBRL concepts with only "instant" entries (no "start" date) → balance_sheet
-    - Duration concepts whose name contains cash-flow keywords → cash_flow
-    - All other duration concepts → income_statement
-
-    This approach is far more inclusive than semantic-type filtering and correctly
-    classifies the vast majority of US-GAAP concepts.
+    Classify all Company Facts concepts into statements using the
+    instant-vs-duration heuristic (no deprecated concepts).
     """
-    facts = await sec_client.get_company_facts(cik)
     us_gaap = facts.get("facts", {}).get("us-gaap", {})
     if not us_gaap:
-        print(f"[xbrl_parser] No us-gaap facts found for CIK {cik}")
         return {}
 
     stmt_concepts: dict[str, list[dict]] = {
@@ -354,49 +415,43 @@ async def _parse_via_company_facts(
         "cash_flow": [],
     }
 
-    for concept_name, concept_data in us_gaap.items():
-        units = concept_data.get("units", {})
-        label = concept_data.get("label") or concept_name
+    for cname, cdata in us_gaap.items():
+        label = cdata.get("label") or cname
+        if "(Deprecated" in label or "Deprecated" in cname:
+            continue
 
-        # Collect all USD / shares entries to classify the concept
-        all_entries: list[dict] = []
-        for unit_type, entries in units.items():
-            if unit_type in ("USD", "shares", "USD/shares"):
-                all_entries.extend(entries)
-
+        all_entries = _get_all_unit_entries(cdata.get("units", {}))
         if not all_entries:
             continue
 
-        # Instant (no "start") → balance sheet; duration (has "start") → IS or CF
         has_duration = any("start" in e for e in all_entries)
         is_instant = not has_duration
 
         if is_instant:
-            target_stmt = "balance_sheet"
-        elif _is_cf_concept(concept_name):
-            target_stmt = "cash_flow"
+            target = "balance_sheet"
+        elif _is_cf_concept(cname):
+            target = "cash_flow"
         else:
-            target_stmt = "income_statement"
+            target = "income_statement"
 
-        periods = _extract_periods_for_form_type(units, form_type, is_instant)
+        periods = _extract_periods_for_form_type(
+            cdata.get("units", {}), form_type, is_instant
+        )
         if not periods:
             continue
 
-        semantic = _infer_semantic_type(concept_name, label)
-        stmt_concepts[target_stmt].append({
-            "concept": f"us-gaap:{concept_name}",
+        stmt_concepts[target].append({
+            "concept": f"us-gaap:{cname}",
             "label": label,
             "level": 1,
             "is_abstract": False,
-            "semantic_type": semantic,
+            "semantic_type": _infer_semantic_type(cname, label),
             "periods": periods,
         })
 
-    # Sort each statement by semantic priority, then label alphabetically
-    def _sort_key(item: dict, order: list[str]) -> tuple:
-        sem = item["semantic_type"]
+    def _sort_key(item: dict, order: list) -> tuple:
         try:
-            return (order.index(sem), item["label"])
+            return (order.index(item["semantic_type"]), item["label"])
         except ValueError:
             return (len(order), item["label"])
 
@@ -404,23 +459,26 @@ async def _parse_via_company_facts(
     for stmt_type, items in stmt_concepts.items():
         if not items:
             continue
-        order = (
-            IS_ORDER if stmt_type == "income_statement"
-            else BS_ORDER if stmt_type == "balance_sheet"
-            else CF_ORDER
+        order = IS_ORDER if stmt_type == "income_statement" else (
+            BS_ORDER if stmt_type == "balance_sheet" else CF_ORDER
         )
         results[stmt_type] = sorted(items, key=lambda x: _sort_key(x, order))
 
     print(
-        f"[xbrl_parser] company_facts fallback for {cik}/{form_type}: "
+        f"[xbrl_parser] company_facts fallback: "
         + ", ".join(f"{k}={len(v)}" for k, v in results.items())
     )
     return results
 
 
+# ── Legacy / edgartools path (unused but kept for reference) ─────────────────
+
+async def _parse_via_company_facts(
+    cik: str, form_type: str, period_end: str
+) -> dict[str, list[dict]]:
+    facts = await sec_client.get_company_facts(cik)
+    return _parse_via_company_facts_data(facts, form_type)
+
+
 def extract_unit_multiplier(line_items: list[dict]) -> int:
-    """
-    Detect the unit multiplier from values.
-    Store raw values; let the frontend format.
-    """
     return 1
