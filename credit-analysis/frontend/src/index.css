@@ -1,0 +1,52 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap");
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 14px;
+  color: #0d2137;
+  background-color: #f5f7fa;
+}
+
+/* AG Grid custom theme overrides */
+.ag-theme-alpine {
+  --ag-font-family: "DM Sans", system-ui, sans-serif;
+  --ag-font-size: 13px;
+  --ag-header-background-color: #1e3a5f;
+  --ag-header-foreground-color: #ffffff;
+  --ag-row-hover-color: #f0f4ff;
+  --ag-selected-row-background-color: #dbeafe;
+  --ag-border-color: #e2e8f0;
+  --ag-cell-horizontal-padding: 12px;
+}
+
+.forecast-header {
+  background-color: #1565c0 !important;
+}
+
+.abstract-row {
+  background-color: #e8eaf0 !important;
+  font-weight: 600;
+}
+
+.abstract-label {
+  font-weight: 700;
+  color: #1e3a5f;
+}
+
+.value-cell {
+  font-family: "DM Mono", monospace;
+  text-align: right;
+}
+
+.forecast-cell {
+  background-color: #ebf3ff !important;
+}
+
+.override-indicator {
+  color: #f59e0b;
+  font-size: 10px;
+  margin-left: 4px;
+}
