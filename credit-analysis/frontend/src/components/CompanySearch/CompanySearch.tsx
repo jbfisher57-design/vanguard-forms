@@ -52,6 +52,7 @@ export function CompanySearch({ onSelect }: Props) {
           onFocus={() => results.length > 0 && setIsOpen(true)}
           placeholder="Search by company name or ticker..."
           className="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm text-sm
+                     text-gray-900 placeholder-gray-400
                      focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                      bg-white"
         />
