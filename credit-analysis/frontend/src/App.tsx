@@ -63,8 +63,10 @@ export default function App() {
   } = useQuery({
     queryKey: ["financials", cik, financialStatement, periods, formType],
     queryFn: () => getFinancials(cik, financialStatement, periods, formType),
-    enabled: !!cik && activeTab !== "debt",
+    // Wait for companyDetail so the company row exists in DB before we fetch financials
+    enabled: !!cik && !!companyDetail && activeTab !== "debt",
     staleTime: 5 * 60 * 1000,
+    retry: 2,
   });
 
   const { data: forecastSessions } = useQuery({
@@ -317,13 +319,13 @@ export default function App() {
                 </div>
 
                 {/* Financial grid */}
-                {financialsLoading ? (
+                {!companyDetail || (financialsLoading && !financialsData) ? (
                   <GridSkeleton />
                 ) : financialsError ? (
                   <div className="py-8 text-center text-red-500 text-sm">
                     Could not load financials. Please try again.
                   </div>
-                ) : combinedGrid ? (
+                ) : combinedGrid && combinedGrid.rows.length > 0 ? (
                   <FinancialGrid
                     data={combinedGrid}
                     forecastValues={forecastValues}
@@ -331,6 +333,10 @@ export default function App() {
                       if (activeSession) setForecastPanelOpen(true);
                     }}
                   />
+                ) : combinedGrid ? (
+                  <div className="py-8 text-center text-gray-400 text-sm">
+                    No financial data found for this company and period selection.
+                  </div>
                 ) : null}
               </>
             )}
