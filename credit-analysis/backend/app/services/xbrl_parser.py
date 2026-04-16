@@ -146,6 +146,8 @@ def _infer_semantic_type(concept: str, label: str) -> str:
     key = _normalize_concept(concept)
     if key in _CONCEPT_SEMANTIC:
         return _CONCEPT_SEMANTIC[key]
+    if not label:
+        return "other"
     # Label-based heuristics
     label_lower = label.lower()
     if "revenue" in label_lower or "net sales" in label_lower:
@@ -354,7 +356,7 @@ async def _parse_via_company_facts(
 
     for concept_name, concept_data in us_gaap.items():
         units = concept_data.get("units", {})
-        label = concept_data.get("label", concept_name)
+        label = concept_data.get("label") or concept_name
 
         # Collect all USD / shares entries to classify the concept
         all_entries: list[dict] = []
