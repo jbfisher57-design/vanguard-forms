@@ -1,8 +1,9 @@
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi_users.schemas import BaseUser, BaseUserCreate, BaseUserUpdate
+from fastapi_users import schemas
 
 from app.auth import auth_backend, fastapi_users
 from app.config import settings
@@ -10,9 +11,22 @@ from app.database import Base, engine
 from app.routers import companies, debt, excel, financials, forecasts
 
 
+# ── User schemas (fastapi-users requires these to be defined explicitly) ──
+class UserRead(schemas.BaseUser[uuid.UUID]):
+    pass
+
+
+class UserCreate(schemas.BaseUserCreate):
+    pass
+
+
+class UserUpdate(schemas.BaseUserUpdate):
+    pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create all tables on startup (use alembic in production)
+    # Create all tables on startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
@@ -40,12 +54,12 @@ app.include_router(
     tags=["auth"],
 )
 app.include_router(
-    fastapi_users.get_register_router(BaseUser, BaseUserCreate),
+    fastapi_users.get_register_router(UserRead, UserCreate),
     prefix="/auth",
     tags=["auth"],
 )
 app.include_router(
-    fastapi_users.get_users_router(BaseUser, BaseUserUpdate),
+    fastapi_users.get_users_router(UserRead, UserUpdate),
     prefix="/users",
     tags=["users"],
 )
