@@ -22,10 +22,14 @@ Each parsed statement is stored as an ordered list of line items:
 import re
 from typing import Any, Optional
 
-from edgartools import Company as EdgarCompany
-from edgartools.financials import Financials
-
 from app.services import sec_client
+
+# edgartools is optional — used when available for richer presentation-order parsing
+try:
+    from edgar import Company as EdgarCompany  # edgartools pip package
+    _EDGARTOOLS_AVAILABLE = True
+except ImportError:
+    _EDGARTOOLS_AVAILABLE = False
 
 # Maps XBRL role fragments to our statement_type keys
 _ROLE_TO_STMT: dict[str, str] = {
@@ -133,12 +137,16 @@ async def parse_filing_statements(
     """
     Parse all financial statements for a given filing.
     Returns {statement_type: [line_item, ...]}
+    Tries edgartools first (faithful presentation order), falls back to
+    Company Facts API which is always available.
     """
-    try:
-        return await _parse_via_edgartools(cik, accession_no)
-    except Exception as e:
-        print(f"[xbrl_parser] edgartools failed for {cik}/{accession_no}: {e}")
-        return await _parse_via_company_facts(cik, form_type, period_end)
+    if _EDGARTOOLS_AVAILABLE:
+        try:
+            return await _parse_via_edgartools(cik, accession_no)
+        except Exception as e:
+            print(f"[xbrl_parser] edgartools failed for {cik}/{accession_no}: {e}")
+
+    return await _parse_via_company_facts(cik, form_type, period_end)
 
 
 async def _parse_via_edgartools(
